@@ -29,7 +29,7 @@ TEST(BufferPoolManagerTest, DISABLED_BinaryDataTest) {
 
   std::random_device r;
   std::default_random_engine rng(r());
-  std::uniform_int_distribution<char> uniform_dist(0);
+  std::uniform_int_distribution<int> uniform_dist(0, 255);
 
   auto *disk_manager = new DiskManager(db_name);
   auto *bpm = new BufferPoolManager(buffer_pool_size, disk_manager, k);
@@ -44,7 +44,7 @@ TEST(BufferPoolManagerTest, DISABLED_BinaryDataTest) {
   char random_binary_data[BUSTUB_PAGE_SIZE];
   // Generate random binary data
   for (char &i : random_binary_data) {
-    i = uniform_dist(rng);
+    i = static_cast<char>(uniform_dist(rng));
   }
 
   // Insert terminal characters both in the middle and at end

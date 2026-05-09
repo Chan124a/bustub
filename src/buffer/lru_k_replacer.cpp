@@ -46,14 +46,18 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
     size_t count = 0;
     it->second.GetKTimestamp(kTimestamp, count);
     size_t distance = current_timestamp_ - kTimestamp;
-    if (count == k_ && distance > distance_equal_k) {
-      distance_equal_k = distance;
-      frame_id_equal_k = it->first;
-      find_frame_id_equal_k = true;
-    } else if (count < k_ && distance > distance_less_k) {
-      distance_less_k = distance;
-      frame_id_less_k = it->first;
-      find_frame_id_less_k = true;
+    if (count == k_) {
+      if (!find_frame_id_equal_k || distance > distance_equal_k) {
+        distance_equal_k = distance;
+        frame_id_equal_k = it->first;
+        find_frame_id_equal_k = true;
+      }
+    } else {
+      if (!find_frame_id_less_k || distance > distance_less_k) {
+        distance_less_k = distance;
+        frame_id_less_k = it->first;
+        find_frame_id_less_k = true;
+      }
     }
   }
   if (!find_frame_id_equal_k && !find_frame_id_less_k) {
