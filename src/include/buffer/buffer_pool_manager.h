@@ -12,10 +12,12 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <list>
 #include <memory>
 #include <mutex>  // NOLINT
 #include <unordered_map>
+#include <unordered_set>
 
 #include "buffer/lru_k_replacer.h"
 #include "common/config.h"
@@ -186,12 +188,16 @@ class BufferPoolManager {
   LogManager *log_manager_ __attribute__((__unused__));
   /** Page table for keeping track of buffer pool pages. */
   std::unordered_map<page_id_t, frame_id_t> page_table_;
+  /** Pages that are currently being read into a frame or written back after eviction. */
+  std::unordered_set<page_id_t> loading_pages_;
   /** Replacer to find unpinned pages for replacement. */
   std::unique_ptr<LRUKReplacer> replacer_;
   /** List of free frames that don't have any pages on them. */
   std::list<frame_id_t> free_list_;
   /** This latch protects shared data structures. We recommend updating this comment to describe what it protects. */
   std::mutex latch_;
+  /** Notifies waiters when an in-flight page load completes or fails. */
+  std::condition_variable load_cv_;
 
   /**
    * @brief Allocate a page on disk. Caller should acquire the latch before calling this function.
