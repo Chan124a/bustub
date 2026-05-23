@@ -58,6 +58,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto GetNextPageId() const -> page_id_t;
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
+  auto ValueAt(int index) const -> ValueType;
 
   /**
    * @brief for test only return a string representing all keys in
@@ -83,6 +84,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
     return kstr;
   }
+
+  void InsertAt(int index, const KeyType &key, const ValueType &value);
+  void RemoveAt(int index);
 
  private:
   page_id_t next_page_id_;

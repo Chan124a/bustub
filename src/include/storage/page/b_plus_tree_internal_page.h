@@ -62,12 +62,6 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
   /**
    *
-   * @param value the value to search for
-   */
-  auto ValueIndex(const ValueType &value) const -> int;
-
-  /**
-   *
    * @param index the index
    * @return the value at the index
    */
@@ -98,6 +92,9 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
     return kstr;
   }
+
+  void InsertAt(int index, const KeyType &key, const ValueType &value);
+  void RemoveAt(int index);
 
  private:
   // Flexible array member for page data.
