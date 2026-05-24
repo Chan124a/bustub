@@ -130,7 +130,11 @@ class BPlusTree {
    */
   auto ToPrintableBPlusTree(page_id_t root_id) -> PrintableBPlusTree;
 
-  // member variable
+  bool RemoveKeyFromLeafPage(int &delete_index, BPlusTreePage *&cur_page, std::vector<BasicPageGuard> &nodes,
+                             page_id_t &last_page_id);
+  bool RemoveKeyFromInternalPage(int &delete_index, BPlusTreePage *&cur_page, std::vector<BasicPageGuard> &nodes,
+                                 page_id_t &last_page_id);
+
   std::string index_name_;
   BufferPoolManager *bpm_;
   KeyComparator comparator_;

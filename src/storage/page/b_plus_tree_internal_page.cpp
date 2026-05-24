@@ -68,7 +68,11 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAt(int index, const KeyType &key, con
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAt(int index) { BUSTUB_ASSERT(index < GetSize(), "invalid index"); }
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAt(int index) {
+  for (int i = index; i < GetSize() - 1; i++) {
+    array_[i] = array_[i + 1];
+  }
+}
 
 // valuetype for internalNode should be page id_t
 template class BPlusTreeInternalPage<GenericKey<4>, page_id_t, GenericComparator<4>>;
