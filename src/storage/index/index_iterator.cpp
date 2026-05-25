@@ -18,8 +18,8 @@ INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::IndexIterator(BufferPoolManager *bpm, page_id_t page_id, int index)
     : bpm_(bpm), page_id_(page_id), index_(index) {
   if (page_id_ != INVALID_PAGE_ID) {
-    page_guard_ = bpm_->FetchPageBasic(page_id_);
-    leaf_page_ = page_guard_.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    page_guard_ = bpm_->FetchPageRead(page_id_);
+    leaf_page_ = page_guard_.template As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     key_value_pair_ = {leaf_page_->KeyAt(index_), leaf_page_->ValueAt(index_)};
   }
 }
@@ -51,8 +51,8 @@ auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
   }
   if (leaf_page_->GetNextPageId() != INVALID_PAGE_ID) {
     page_id_ = leaf_page_->GetNextPageId();
-    page_guard_ = bpm_->FetchPageBasic(page_id_);
-    leaf_page_ = page_guard_.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    page_guard_ = bpm_->FetchPageRead(page_id_);
+    leaf_page_ = page_guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     index_ = 0;
     key_value_pair_ = {leaf_page_->KeyAt(index_), leaf_page_->ValueAt(index_)};
     return *this;

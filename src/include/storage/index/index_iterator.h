@@ -17,6 +17,7 @@
 #include "common/config.h"
 #include "storage/page/b_plus_tree_leaf_page.h"
 #include "storage/page/b_plus_tree_page.h"
+#include "storage/page/page_guard.h"
 
 namespace bustub {
 
@@ -43,8 +44,8 @@ class IndexIterator {
   // add your own private member variables here
   BufferPoolManager *bpm_{nullptr};
   page_id_t page_id_{INVALID_PAGE_ID};
-  BasicPageGuard page_guard_{};
-  B_PLUS_TREE_LEAF_PAGE_TYPE *leaf_page_{nullptr};
+  ReadPageGuard page_guard_{};
+  const B_PLUS_TREE_LEAF_PAGE_TYPE *leaf_page_{nullptr};
   int index_{0};
   MappingType key_value_pair_{};
 };
