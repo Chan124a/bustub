@@ -9,6 +9,7 @@
 #include "common/macros.h"
 #include "common/rid.h"
 #include "storage/index/b_plus_tree.h"
+#include "storage/index/index_iterator.h"
 #include "storage/page/page.h"
 #include "storage/page/page_guard.h"
 
@@ -497,7 +498,23 @@ bool BPLUSTREE_TYPE::RemoveKeyFromInternalPage(int &delete_index, BPlusTreePage 
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  if (root_page_id_ == INVALID_PAGE_ID) {
+    return INDEXITERATOR_TYPE(bpm_, root_page_id_, 0);
+  }
+
+  page_id_t leaf_page_id = root_page_id_;
+  BasicPageGuard page_guard = bpm_->FetchPageBasic(leaf_page_id);
+  auto page = page_guard.template AsMut<BPlusTreePage>();
+  while (!page->IsLeafPage()) {
+    auto internal_page = page_guard.template AsMut<InternalPage>();
+    leaf_page_id = internal_page->ValueAt(0);
+    page_guard = bpm_->FetchPageBasic(internal_page->ValueAt(0));
+    page = page_guard.template AsMut<BPlusTreePage>();
+  }
+
+  return INDEXITERATOR_TYPE(bpm_, leaf_page_id, 0);
+}
 
 /*
  * Input parameter is low key, find the leaf page that contains the input key
@@ -505,7 +522,38 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE()
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
+  if (root_page_id_ == INVALID_PAGE_ID) {
+    return INDEXITERATOR_TYPE(bpm_, root_page_id_, 0);
+  }
+
+  page_id_t leaf_page_id = root_page_id_;
+  BasicPageGuard page_guard = bpm_->FetchPageBasic(leaf_page_id);
+  auto page = page_guard.template AsMut<BPlusTreePage>();
+  while (!page->IsLeafPage()) {
+    auto internal_page = page_guard.template AsMut<InternalPage>();
+    int child_index = 0;
+    for (int i = 1; i < internal_page->GetSize(); ++i) {
+      if (comparator_(key, internal_page->KeyAt(i)) < 0) {
+        break;
+      }
+      child_index = i;
+    }
+    leaf_page_id = internal_page->ValueAt(child_index);
+    page_guard = bpm_->FetchPageBasic(internal_page->ValueAt(child_index));
+    page = page_guard.template AsMut<BPlusTreePage>();
+  }
+
+  auto leaf_page = page_guard.template AsMut<LeafPage>();
+  int index = 0;
+  while (index < leaf_page->GetSize() && comparator_(leaf_page->KeyAt(index), key) < 0) {
+    index++;
+  }
+  if (index >= leaf_page->GetSize() || comparator_(leaf_page->KeyAt(index), key) != 0) {
+    return INDEXITERATOR_TYPE(bpm_, leaf_page_id, leaf_page->GetSize());
+  }
+  return INDEXITERATOR_TYPE(bpm_, leaf_page_id, index);
+}
 
 /*
  * Input parameter is void, construct an index iterator representing the end
@@ -513,7 +561,7 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return IN
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(bpm_, INVALID_PAGE_ID, 0); }
 
 /**
  * @return Page id of the root of this tree
@@ -661,7 +709,7 @@ void BPLUSTREE_TYPE::ToGraph(page_id_t page_id, const BPlusTreePage *page, std::
     // Print node properties
     out << "[shape=plain color=pink ";  // why not?
     // Print data of the node
-    out << "label=<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\" CELLPADDING=\"4\">\n";
+    out << "label=<<TAB*LE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\" CELLPADDING=\"4\">\n";
     // Print data
     out << "<TR><TD COLSPAN=\"" << inner->GetSize() << "\">P=" << page_id << "</TD></TR>\n";
     out << "<TR><TD COLSPAN=\"" << inner->GetSize() << "\">"
