@@ -54,6 +54,12 @@ class Context {
   std::deque<ReadPageGuard> read_set_;
 
   auto IsRootPage(page_id_t page_id) -> bool { return page_id == root_page_id_; }
+  void ReleaseAllWriteLatches() {
+    while (!write_set_.empty()) {
+      write_set_.pop_front();
+    }
+    header_page_ = std::nullopt;
+  }
 };
 
 #define BPLUSTREE_TYPE BPlusTree<KeyType, ValueType, KeyComparator>
@@ -130,10 +136,8 @@ class BPlusTree {
    */
   auto ToPrintableBPlusTree(page_id_t root_id) -> PrintableBPlusTree;
 
-  bool RemoveKeyFromLeafPage(int &delete_index, BPlusTreePage *&cur_page, std::vector<WritePageGuard> &nodes,
-                             page_id_t &last_page_id);
-  bool RemoveKeyFromInternalPage(int &delete_index, BPlusTreePage *&cur_page, std::vector<WritePageGuard> &nodes,
-                                 page_id_t &last_page_id);
+  bool RemoveKeyFromLeafPage(int &delete_index, BPlusTreePage *&cur_page, Context &ctx, page_id_t &last_page_id);
+  bool RemoveKeyFromInternalPage(int &delete_index, BPlusTreePage *&cur_page, Context &ctx, page_id_t &last_page_id);
 
   std::string index_name_;
   BufferPoolManager *bpm_;
