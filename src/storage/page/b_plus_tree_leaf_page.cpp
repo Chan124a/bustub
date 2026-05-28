@@ -61,6 +61,26 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueAt(int index) const -> ValueType {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::IsTombstoneAt(int index) const -> bool {
+  BUSTUB_ASSERT(index < GetSize(), "invalid index");
+  return array_[index].second == ValueType{};
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetTombstoneCount() const -> int {
+  int tombstone_count = 0;
+  for (int i = 0; i < GetSize(); ++i) {
+    if (IsTombstoneAt(i)) {
+      tombstone_count++;
+    }
+  }
+  return tombstone_count;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetLiveSize() const -> int { return GetSize() - GetTombstoneCount(); }
+
+INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertAt(int index, const KeyType &key, const ValueType &value) {
   BUSTUB_ASSERT(index < GetSize() + 1, "invalid index");
   for (int i = GetSize(); i > index; --i) {
@@ -74,6 +94,29 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::RemoveAt(int index) {
   for (int i = index; i < GetSize() - 1; i++) {
     array_[i] = array_[i + 1];
   }
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MarkTombstoneAt(int index) {
+  BUSTUB_ASSERT(index < GetSize(), "invalid index");
+  array_[index].second = ValueType{};
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::ClearTombstoneAt(int index, const ValueType &value) {
+  BUSTUB_ASSERT(index < GetSize(), "invalid index");
+  array_[index].second = value;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::CompactTombstones() {
+  int live_index = 0;
+  for (int i = 0; i < GetSize(); ++i) {
+    if (!IsTombstoneAt(i)) {
+      array_[live_index++] = array_[i];
+    }
+  }
+  SetSize(live_index);
 }
 
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;

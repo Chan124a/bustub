@@ -41,6 +41,8 @@ class IndexIterator {
   auto operator!=(const IndexIterator &itr) const -> bool;
 
  private:
+  void AdvanceToLive();
+
   // add your own private member variables here
   BufferPoolManager *bpm_{nullptr};
   page_id_t page_id_{INVALID_PAGE_ID};

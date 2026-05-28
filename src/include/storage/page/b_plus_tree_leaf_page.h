@@ -59,6 +59,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
   auto ValueAt(int index) const -> ValueType;
+  auto IsTombstoneAt(int index) const -> bool;
+  auto GetTombstoneCount() const -> int;
+  auto GetLiveSize() const -> int;
 
   /**
    * @brief for test only return a string representing all keys in
@@ -71,6 +74,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
     bool first = true;
 
     for (int i = 0; i < GetSize(); i++) {
+      if (IsTombstoneAt(i)) {
+        continue;
+      }
       KeyType key = KeyAt(i);
       if (first) {
         first = false;
@@ -87,6 +93,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   void InsertAt(int index, const KeyType &key, const ValueType &value);
   void RemoveAt(int index);
+  void MarkTombstoneAt(int index);
+  void ClearTombstoneAt(int index, const ValueType &value);
+  void CompactTombstones();
 
  private:
   page_id_t next_page_id_;

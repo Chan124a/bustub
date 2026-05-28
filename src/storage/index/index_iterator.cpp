@@ -20,7 +20,7 @@ INDEXITERATOR_TYPE::IndexIterator(BufferPoolManager *bpm, page_id_t page_id, int
   if (page_id_ != INVALID_PAGE_ID) {
     page_guard_ = bpm_->FetchPageRead(page_id_);
     leaf_page_ = page_guard_.template As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
-    key_value_pair_ = {leaf_page_->KeyAt(index_), leaf_page_->ValueAt(index_)};
+    AdvanceToLive();
   }
 }
 
@@ -40,28 +40,38 @@ INDEX_TEMPLATE_ARGUMENTS
 auto INDEXITERATOR_TYPE::operator*() -> const MappingType & { return key_value_pair_; }
 
 INDEX_TEMPLATE_ARGUMENTS
+void INDEXITERATOR_TYPE::AdvanceToLive() {
+  while (page_id_ != INVALID_PAGE_ID) {
+    while (index_ < leaf_page_->GetSize() && leaf_page_->IsTombstoneAt(index_)) {
+      index_++;
+    }
+    if (index_ < leaf_page_->GetSize()) {
+      key_value_pair_ = {leaf_page_->KeyAt(index_), leaf_page_->ValueAt(index_)};
+      return;
+    }
+    page_id_t next_page_id = leaf_page_->GetNextPageId();
+    if (next_page_id == INVALID_PAGE_ID) {
+      page_guard_.Drop();
+      page_id_ = INVALID_PAGE_ID;
+      leaf_page_ = nullptr;
+      index_ = 0;
+      key_value_pair_ = {KeyType{}, ValueType{}};
+      return;
+    }
+    page_id_ = next_page_id;
+    page_guard_ = bpm_->FetchPageRead(page_id_);
+    leaf_page_ = page_guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    index_ = 0;
+  }
+}
+
+INDEX_TEMPLATE_ARGUMENTS
 auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
   if (page_id_ == INVALID_PAGE_ID) {
     return *this;
   }
-  if (index_ + 1 < leaf_page_->GetSize()) {
-    index_++;
-    key_value_pair_ = {leaf_page_->KeyAt(index_), leaf_page_->ValueAt(index_)};
-    return *this;
-  }
-  if (leaf_page_->GetNextPageId() != INVALID_PAGE_ID) {
-    page_id_ = leaf_page_->GetNextPageId();
-    page_guard_ = bpm_->FetchPageRead(page_id_);
-    leaf_page_ = page_guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
-    index_ = 0;
-    key_value_pair_ = {leaf_page_->KeyAt(index_), leaf_page_->ValueAt(index_)};
-    return *this;
-  }
-  page_guard_.Drop();
-  page_id_ = INVALID_PAGE_ID;
-  leaf_page_ = nullptr;
-  index_ = 0;
-  key_value_pair_ = {KeyType{}, ValueType{}};
+  index_++;
+  AdvanceToLive();
   return *this;
 }
 
