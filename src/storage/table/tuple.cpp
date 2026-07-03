@@ -68,6 +68,12 @@ auto Tuple::GetValue(const Schema *schema, const uint32_t column_idx) const -> V
   return Value::DeserializeFrom(data_ptr, column_type);
 }
 
+/* Tuple::KeyFromTuple的作用是从完整 tuple 中，按 key_attrs 指定的列号取值,用 key_schema 重新构造一个只包含索引列的tuple
+ * 举例：
+ * tuple = (1, "a", 99)
+ * key_attrs = [0, 2]
+ * index key = (1, 99)
+ */
 auto Tuple::KeyFromTuple(const Schema &schema, const Schema &key_schema, const std::vector<uint32_t> &key_attrs)
     -> Tuple {
   std::vector<Value> values;

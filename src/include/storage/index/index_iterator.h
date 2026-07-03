@@ -26,7 +26,9 @@ namespace bustub {
 INDEX_TEMPLATE_ARGUMENTS
 class IndexIterator {
  public:
-  // you may define your own constructor based on your member variables
+  // 禁用拷贝是因为成员对象ReadPageGuard page_guard_ 已经禁用拷贝了
+  DISALLOW_COPY(IndexIterator);
+
   IndexIterator(BufferPoolManager *bpm, page_id_t page_id, int index);
   ~IndexIterator();  // NOLINT
 

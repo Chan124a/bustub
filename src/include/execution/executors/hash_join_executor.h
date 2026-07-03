@@ -12,13 +12,19 @@
 
 #pragma once
 
+#include <cstddef>
+#include <list>
 #include <memory>
 #include <utility>
+#include <vector>
 
+#include "common/util/hash_util.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/hash_join_plan.h"
 #include "storage/table/tuple.h"
+#include "type/type.h"
+#include "type/value.h"
 
 namespace bustub {
 
@@ -52,8 +58,53 @@ class HashJoinExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); };
 
  private:
+  struct HashJoinKey {
+    std::vector<Value> value;
+    bool is_null{false};
+    bool operator==(const HashJoinKey &other) const {
+      if (this->is_null || other.is_null) {
+        return false;
+      }
+      if (other.value.size() != this->value.size()) {
+        return false;
+      }
+      for (size_t i = 0; i < this->value.size(); i++) {
+        CmpBool res = this->value[i].CompareNotEquals(other.value[i]);
+        if (res == CmpBool::CmpTrue || res == CmpBool::CmpNull) {
+          return false;
+        }
+      }
+      return true;
+    }
+  };
+  struct HashJoinFunc {
+    size_t operator()(const HashJoinKey &key) const {
+      hash_t hash_value{0};
+      for (size_t i = 0; i < key.value.size(); i++) {
+        if (i == 0) {
+          hash_value = HashUtil::HashValue(&key.value[i]);
+        } else {
+          hash_value = HashUtil::CombineHashes(hash_value, HashUtil::HashValue(&key.value[i]));
+        }
+      }
+      return hash_value;
+    }
+  };
+  void MakeHashJoinKey(const Tuple *tuple, const std::vector<AbstractExpressionRef> &expressions, const Schema &schema,
+                       HashJoinKey &hash_join_key);
+  void AdvanceLeftTuple();
+  void MakeLeftJoinNullTuple(Tuple *tuple);
+
+ private:
   /** The NestedLoopJoin plan node to be executed. */
   const HashJoinPlanNode *plan_;
+  std::unique_ptr<AbstractExecutor> left_executor_;
+  std::unique_ptr<AbstractExecutor> right_executor_;
+  std::unordered_map<HashJoinKey, std::vector<Tuple>, HashJoinFunc> ht_;
+  bool has_left_{false};
+  HashJoinKey left_key_{};
+  Tuple left_tuple_{};
+  size_t index_;
 };
 
 }  // namespace bustub

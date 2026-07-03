@@ -45,11 +45,13 @@ auto TablePage::GetNextTupleOffset(const TupleMeta &meta, const Tuple &tuple) co
 }
 
 auto TablePage::InsertTuple(const TupleMeta &meta, const Tuple &tuple) -> std::optional<uint16_t> {
+  // 判断当前页剩余空间是否够,如果空间够，则访问写入位置tuple_offset
   auto tuple_offset = GetNextTupleOffset(meta, tuple);
   if (tuple_offset == std::nullopt) {
     return std::nullopt;
   }
   auto tuple_id = num_tuples_;
+  // std::make_tuple(a, b, c) 的参数作用表示tuple的各个值
   tuple_info_[tuple_id] = std::make_tuple(*tuple_offset, tuple.GetLength(), meta);
   num_tuples_++;
   memcpy(page_start_ + *tuple_offset, tuple.data_.data(), tuple.GetLength());

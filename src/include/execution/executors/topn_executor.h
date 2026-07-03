@@ -13,6 +13,7 @@
 #pragma once
 
 #include <memory>
+#include <queue>
 #include <utility>
 #include <vector>
 
@@ -56,12 +57,20 @@ class TopNExecutor : public AbstractExecutor {
   }
 
   /** @return The size of top_entries_ container, which will be called on each child_executor->Next(). */
-  auto GetNumInHeap() -> size_t;
+  auto GetNumInHeap() const -> size_t;
 
  private:
+  using Entry = std::pair<Tuple, RID>;
+  auto IsBetter(const Entry &a, const Entry &b) const -> bool;
+  struct TopNComparator {
+    const TopNExecutor *executor;
+    auto operator()(const Entry &a, const Entry &b) const -> bool { return executor->IsBetter(a, b); }
+  };
   /** The topn plan node to be executed */
   const TopNPlanNode *plan_;
   /** The child executor from which tuples are obtained */
   std::unique_ptr<AbstractExecutor> child_executor_;
+  std::priority_queue<Entry, std::vector<Entry>, TopNComparator> top_entries_;
+  std::vector<Entry> result_;
 };
 }  // namespace bustub
