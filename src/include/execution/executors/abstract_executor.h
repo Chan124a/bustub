@@ -16,6 +16,18 @@
 #include "storage/table/tuple.h"
 
 namespace bustub {
+
+template <typename Operation>
+void CheckLockOperation(Operation &&operation, const std::string &failure_message) {
+  try {
+    if (!operation()) {
+      throw bustub::ExecutionException(failure_message);
+    }
+  } catch (bustub::TransactionAbortException &e) {
+    throw bustub::ExecutionException(e.GetInfo());
+  }
+}
+
 class ExecutorContext;
 /**
  * The AbstractExecutor implements the Volcano tuple-at-a-time iterator model.

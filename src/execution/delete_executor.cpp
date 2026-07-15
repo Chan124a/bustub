@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "common/rid.h"
+#include "concurrency/transaction.h"
 #include "execution/executors/delete_executor.h"
 #include "type/value_factory.h"
 
@@ -51,10 +52,16 @@ auto DeleteExecutor::Next(Tuple *tuple, [[maybe_unused]] RID *rid) -> bool {
     auto cur_tuple_meta = table_info_->table_->GetTupleMeta(child_rid);
     cur_tuple_meta.is_deleted_ = true;
     table_info_->table_->UpdateTupleMeta(cur_tuple_meta, child_rid);
+    TableWriteRecord table_write_record(plan_->TableOid(), child_rid, table_info_->table_.get());
+    table_write_record.wtype_ = WType::DELETE;
+    exec_ctx_->GetTransaction()->AppendTableWriteRecord(table_write_record);
     for (size_t i = 0; i < indexes_.size(); ++i) {
-      indexes_[i]->index_->DeleteEntry(
-          child_tuple.KeyFromTuple(table_info_->schema_, indexes_[i]->key_schema_, indexes_[i]->index_->GetKeyAttrs()),
-          child_rid, exec_ctx_->GetTransaction());
+      auto key =
+          child_tuple.KeyFromTuple(table_info_->schema_, indexes_[i]->key_schema_, indexes_[i]->index_->GetKeyAttrs());
+      indexes_[i]->index_->DeleteEntry(key, child_rid, exec_ctx_->GetTransaction());
+      IndexWriteRecord index_write_record(child_rid, plan_->TableOid(), WType::DELETE, key, indexes_[i]->index_oid_,
+                                          exec_ctx_->GetCatalog());
+      exec_ctx_->GetTransaction()->AppendIndexWriteRecord(index_write_record);
     }
     delete_count++;
   }

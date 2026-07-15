@@ -116,6 +116,7 @@ enum class AbortReason {
   UPGRADE_CONFLICT,
   LOCK_SHARED_ON_READ_UNCOMMITTED,
   TABLE_LOCK_NOT_PRESENT,
+  ROW_LOCK_NOT_PRESENT,
   ATTEMPTED_INTENTION_LOCK_ON_ROW,
   TABLE_UNLOCKED_BEFORE_UNLOCKING_ROWS,
   INCOMPATIBLE_UPGRADE,
@@ -146,6 +147,8 @@ class TransactionAbortException : public std::exception {
         return "Transaction " + std::to_string(txn_id_) + " aborted on lockshared on READ_UNCOMMITTED\n";
       case AbortReason::TABLE_LOCK_NOT_PRESENT:
         return "Transaction " + std::to_string(txn_id_) + " aborted because table lock not present\n";
+      case AbortReason::ROW_LOCK_NOT_PRESENT:
+        return "Transaction " + std::to_string(txn_id_) + " aborted because row lock not present\n";
       case AbortReason::ATTEMPTED_INTENTION_LOCK_ON_ROW:
         return "Transaction " + std::to_string(txn_id_) + " aborted because intention lock attempted on row\n";
       case AbortReason::TABLE_UNLOCKED_BEFORE_UNLOCKING_ROWS:
@@ -302,7 +305,9 @@ class Transaction {
   }
 
   /** @return the current state of the transaction */
-  inline auto GetState() -> TransactionState { return state_; }
+  inline auto GetState() -> TransactionState { return state_.load(); }
+
+  auto AcquireTxnUniqueLock() -> std::unique_lock<std::mutex> { return std::unique_lock<std::mutex>(latch_); }
 
   inline auto LockTxn() -> void { latch_.lock(); }
 
@@ -312,7 +317,7 @@ class Transaction {
    * Set the state of the transaction.
    * @param state new state
    */
-  inline void SetState(TransactionState state) { state_ = state; }
+  inline void SetState(TransactionState state) { state_.store(state); }
 
   /** @return the previous LSN */
   inline auto GetPrevLSN() -> lsn_t { return prev_lsn_; }
@@ -325,7 +330,7 @@ class Transaction {
 
  private:
   /** The current transaction state. */
-  TransactionState state_{TransactionState::GROWING};
+  std::atomic<TransactionState> state_{TransactionState::GROWING};
   /** The isolation level of the transaction. */
   IsolationLevel isolation_level_;
   /** The thread ID, used in single-threaded transactions. */

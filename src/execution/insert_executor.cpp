@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "common/macros.h"
+#include "concurrency/transaction.h"
 #include "execution/executors/insert_executor.h"
 #include "type/value_factory.h"
 
@@ -26,6 +27,29 @@ InsertExecutor::InsertExecutor(ExecutorContext *exec_ctx, const InsertPlanNode *
 void InsertExecutor::Init() {
   is_inserted_ = false;
   child_executor_->Init();
+
+  bool has_IX = exec_ctx_->GetTransaction()->IsTableIntentionExclusiveLocked(plan_->TableOid());
+  bool has_X = exec_ctx_->GetTransaction()->IsTableExclusiveLocked(plan_->TableOid());
+  bool has_SIX = exec_ctx_->GetTransaction()->IsTableSharedIntentionExclusiveLocked(plan_->TableOid());
+  bool has_S = exec_ctx_->GetTransaction()->IsTableSharedLocked(plan_->TableOid());
+  if (!has_IX && !has_X && !has_SIX) {
+    if (has_S) {
+      CheckLockOperation(
+          [&] {
+            return exec_ctx_->GetLockManager()->LockTable(
+                exec_ctx_->GetTransaction(), LockManager::LockMode::SHARED_INTENTION_EXCLUSIVE, plan_->TableOid());
+          },
+          "lock table failed.");
+    } else {
+      CheckLockOperation(
+          [&] {
+            return exec_ctx_->GetLockManager()->LockTable(
+                exec_ctx_->GetTransaction(), LockManager::LockMode::INTENTION_EXCLUSIVE, plan_->TableOid());
+          },
+          "lock table failed.");
+    }
+  }
+
   table_info_ = exec_ctx_->GetCatalog()->GetTable(plan_->TableOid());
   indexes_ = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
 }
@@ -55,13 +79,19 @@ auto InsertExecutor::Next(Tuple *tuple, [[maybe_unused]] RID *rid) -> bool {
     if (cur_rid == std::nullopt) {
       throw ExecutionException("insert failed");
     }
+    TableWriteRecord table_write_record(plan_->TableOid(), *cur_rid, table_info_->table_.get());
+    table_write_record.wtype_ = WType::INSERT;
+    exec_ctx_->GetTransaction()->AppendTableWriteRecord(table_write_record);
     for (size_t i = 0; i < indexes_.size(); ++i) {
-      bool res = indexes_[i]->index_->InsertEntry(
-          child_tuple.KeyFromTuple(table_info_->schema_, indexes_[i]->key_schema_, indexes_[i]->index_->GetKeyAttrs()),
-          *cur_rid, exec_ctx_->GetTransaction());
+      auto key =
+          child_tuple.KeyFromTuple(table_info_->schema_, indexes_[i]->key_schema_, indexes_[i]->index_->GetKeyAttrs());
+      bool res = indexes_[i]->index_->InsertEntry(key, *cur_rid, exec_ctx_->GetTransaction());
       if (!res) {
         throw ExecutionException("failed to insert key to index");
       }
+      IndexWriteRecord index_write_record(*cur_rid, plan_->TableOid(), WType::INSERT, key, indexes_[i]->index_oid_,
+                                          exec_ctx_->GetCatalog());
+      exec_ctx_->GetTransaction()->AppendIndexWriteRecord(index_write_record);
     }
     insert_count++;
   }

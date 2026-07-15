@@ -312,17 +312,67 @@ class LockManager {
  private:
   /** Spring 2023 */
   /* You are allowed to modify all functions below. */
-  auto UpgradeLockTable(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) -> bool;
-  auto UpgradeLockRow(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid) -> bool;
+  /**
+   * Upgrade a transaction's granted table lock to a stronger lock mode.
+   * The request may wait until it is compatible with other granted locks.
+   */
+  auto UpgradeLockTable(Transaction *txn, LockMode old_lock_mode, LockMode new_lock_mode, const table_oid_t &oid)
+      -> bool;
+
+  /**
+   * Upgrade a transaction's granted row lock to a stronger lock mode.
+   * The request may wait until it is compatible with other granted locks.
+   */
+  auto UpgradeLockRow(Transaction *txn, LockMode old_lock_mode, LockMode new_lock_mode, const table_oid_t &oid,
+                      const RID &rid) -> bool;
+
+  /** Return whether two lock modes can be granted concurrently on one resource. */
   auto AreLocksCompatible(LockMode l1, LockMode l2) -> bool;
+
+  /**
+   * Return whether the transaction's state and isolation level allow it to request this lock mode.
+   */
   auto CanTxnTakeLock(Transaction *txn, LockMode lock_mode) -> bool;
+
+  /**
+   * Grant every waiting request at the head of the queue that is compatible with granted locks,
+   * then notify blocked transactions.
+   */
   void GrantNewLocksIfPossible(LockRequestQueue *lock_request_queue);
+
+  /** Return whether requested_lock_mode is a legal upgrade from curr_lock_mode. */
   auto CanLockUpgrade(LockMode curr_lock_mode, LockMode requested_lock_mode) -> bool;
+
+  /**
+   * Return whether the transaction holds a table-level lock that permits the requested row lock.
+   */
   auto CheckAppropriateLockOnTable(Transaction *txn, const table_oid_t &oid, LockMode row_lock_mode) -> bool;
+
+  /**
+   * Perform DFS from source_txn to find a waits-for cycle and select a transaction to abort.
+   */
   auto FindCycle(txn_id_t source_txn, std::vector<txn_id_t> &path, std::unordered_set<txn_id_t> &on_path,
                  std::unordered_set<txn_id_t> &visited, txn_id_t *abort_txn_id) -> bool;
+
+  /** Release and remove every outstanding table and row lock request during cleanup. */
   void UnlockAll();
 
+  auto IsTableLocked(Transaction *txn, const table_oid_t &oid, LockMode &lock_mode) -> bool;
+  auto IsRowLocked(Transaction *txn, const table_oid_t &oid, const RID &rid, LockMode &lock_mode) -> bool;
+  auto UpgradeTableLockSet(Transaction *txn, LockMode old_lock_mode, bool delete_old, LockMode new_lock_mode,
+                           const table_oid_t &oid) -> void;
+  auto UpgradeRowLockSet(Transaction *txn, LockMode old_lock_mode, bool delete_old, LockMode new_lock_mode,
+                         const table_oid_t &oid, const RID &rid) -> void;
+  auto GetTableLockSet(Transaction *txn, LockMode lock_mode) -> std::shared_ptr<std::unordered_set<table_oid_t>>;
+  auto GetRowLockSet(Transaction *txn, LockMode lock_mode)
+      -> std::shared_ptr<std::unordered_map<table_oid_t, std::unordered_set<RID>>>;
+  auto UpdateTxnStateAfterUnlock(Transaction *txn, LockMode lock_mode) -> void;
+  auto TransactionAbort(Transaction *txn, AbortReason abortReason, bool notify, LockRequestQueue *lock_request_queue)
+      -> void;
+  auto FindCycleHelpFunc(txn_id_t cur_txn_id_t, std::unordered_set<txn_id_t> &ids) -> bool;
+  auto GetWaitRelationFromLockQueue(LockRequestQueue *lock_request_queue) -> void;
+
+ private:
   /** Structure that holds lock requests for a given table oid */
   std::unordered_map<table_oid_t, std::shared_ptr<LockRequestQueue>> table_lock_map_;
   /** Coordination */
