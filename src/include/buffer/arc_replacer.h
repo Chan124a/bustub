@@ -34,6 +34,8 @@ struct FrameStatus {
   frame_id_t frame_id_;
   bool evictable_;
   ArcStatus arc_status_;
+  std::list<frame_id_t>::iterator list_iterator;
+  std::list<page_id_t>::iterator ghost_iterator;
   FrameStatus(page_id_t pid, frame_id_t fid, bool ev, ArcStatus st)
       : page_id_(pid), frame_id_(fid), evictable_(ev), arc_status_(st) {}
 };
@@ -59,6 +61,10 @@ class ArcReplacer {
   void SetEvictable(frame_id_t frame_id, bool set_evictable);
   void Remove(frame_id_t frame_id);
   auto Size() -> size_t;
+
+ private:
+  auto TryEvictList(std::list<frame_id_t> &list, std::list<page_id_t> &ghost_list, ArcStatus ghost_state)
+      -> std::optional<frame_id_t>;
 
  private:
   // TODO(student): implement me! You can replace or remove these member variables as you like.
