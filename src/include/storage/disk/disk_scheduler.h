@@ -67,7 +67,7 @@ class DiskScheduler {
    *
    * @return std::promise<bool>
    */
-  auto CreatePromise() -> DiskSchedulerPromise { return {}; };
+  auto CreatePromise() -> DiskSchedulerPromise { return DiskSchedulerPromise{}; };
 
   /**
    * @brief Deallocates a page on disk.
