@@ -14,6 +14,7 @@
 
 #include <list>
 #include <memory>
+#include <optional>
 #include <shared_mutex>
 #include <unordered_map>
 #include <vector>
@@ -95,6 +96,7 @@ class FrameHeader {
    * currently storing. This might allow you to skip searching for the corresponding (page ID, frame ID) pair somewhere
    * else in the buffer pool manager...
    */
+  page_id_t page_id_;
 };
 
 /**
@@ -127,6 +129,14 @@ class BufferPoolManager {
   auto GetPinCount(page_id_t page_id) -> std::optional<size_t>;
 
  private:
+  /**
+   * @brief Pins and returns the frame for @p page_id, loading it from disk if needed.
+   *
+   * The returned frame is non-evictable and has one additional pin. The caller
+   * transfers that pin to its page guard.
+   */
+  auto FetchFrame(page_id_t page_id, AccessType access_type) -> std::optional<std::shared_ptr<FrameHeader>>;
+
   /** @brief The number of frames in the buffer pool. */
   const size_t num_frames_;
 
