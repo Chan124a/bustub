@@ -90,6 +90,9 @@ class BPlusTreeInternalPage : public BPlusTreePage {
     return kstr;
   }
 
+  void InsertAt(int index, const KeyType &key, const ValueType &value);
+  void RemoveAt(int index);
+
  private:
   // Array members for page data.
   KeyType key_array_[INTERNAL_PAGE_SLOT_CNT];

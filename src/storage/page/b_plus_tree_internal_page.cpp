@@ -10,11 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <iostream>
-#include <sstream>
-
-#include "common/exception.h"
 #include "storage/page/b_plus_tree_internal_page.h"
+#include "common/exception.h"
 
 namespace bustub {
 /*****************************************************************************
@@ -31,8 +28,11 @@ namespace bustub {
  * @param max_size Maximal size of the page
  */
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) { UNIMPLEMENTED("TODO(P2): Add implementation."); }
-
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) {
+  SetPageType(IndexPageType::INTERNAL_PAGE);
+  SetMaxSize(max_size);
+  SetSize(0);
+}
 /**
  * @brief Helper method to get/set the key associated with input "index"(a.k.a
  * array offset).
@@ -40,32 +40,58 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) { UNIMPLEMENTED("TODO(P2
  * @param index The index of the key to get. Index must be non-zero.
  * @return Key at index
  */
-INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+INDEX_TEMPLATE_ARGUMENTS auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
+  BUSTUB_ASSERT(index > 0 && index < GetSize(), "invalid key index");
+  return key_array_[index];
 }
 
-/**
- * @brief Set key at the specified index.
- *
- * @param index The index of the key to set. Index must be non-zero.
- * @param key The new value for key
- */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+  BUSTUB_ASSERT(index > 0 && index < GetSize(), "invalid key index");
+  key_array_[index] = key;
 }
 
-/**
- * @brief Helper method to get the value associated with input "index"(a.k.a array
- * offset)
- *
- * @param index The index of the value to get.
- * @return Value at index
- */
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
+  for (int index = 0; index < GetSize(); index++) {
+    if (page_id_array_[index] == value) {
+      return index;
+    }
+  }
+  BUSTUB_ASSERT(false, "value not found in internal page");
+  return -1;
+}
+
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+  BUSTUB_ASSERT(index >= 0 && index < GetSize(), "invalid value index");
+  return page_id_array_[index];
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertAt(int index, const KeyType &key, const ValueType &value) {
+  BUSTUB_ASSERT(index >= 0 && index <= GetSize(), "invalid insert index");
+  BUSTUB_ASSERT(GetSize() < GetMaxSize(), "internal page is full");
+  for (int i = GetSize(); i > index; --i) {
+    key_array_[i] = key_array_[i - 1];
+    page_id_array_[i] = page_id_array_[i - 1];
+  }
+  key_array_[index] = index == 0 ? KeyType{} : key;
+  page_id_array_[index] = value;
+  IncreaseSize(1);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::RemoveAt(int index) {
+  BUSTUB_ASSERT(index >= 0 && index < GetSize(), "invalid remove index");
+  for (int i = index; i < GetSize() - 1; i++) {
+    key_array_[i] = key_array_[i + 1];
+    page_id_array_[i] = page_id_array_[i + 1];
+  }
+  DecreaseSize(1);
+  if (GetSize() > 0) {
+    key_array_[0] = KeyType{};
+  }
 }
 
 // valuetype for internalNode should be page id_t
