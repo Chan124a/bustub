@@ -15,6 +15,10 @@
  * For range scan of b+ tree
  */
 #pragma once
+#include <cstddef>
+#include <iterator>
+#include <memory>
+#include <optional>
 #include <utility>
 #include "buffer/traced_buffer_pool_manager.h"
 #include "common/config.h"
@@ -29,22 +33,48 @@ namespace bustub {
 FULL_INDEX_TEMPLATE_ARGUMENTS_DEFN
 class IndexIterator {
  public:
+  using value_type = std::pair<KeyType, ValueType>;
+  using difference_type = std::ptrdiff_t;
+  using reference = std::pair<const KeyType &, const ValueType &>;
+  using pointer = void;
+  using iterator_category = std::input_iterator_tag;
+
   // you may define your own constructor based on your member variables
   IndexIterator();
+  IndexIterator(std::shared_ptr<TracedBufferPoolManager> bpm, ReadPageGuard guard, int index,
+                const KeyComparator &comparator);
   ~IndexIterator();  // NOLINT
 
-  auto IsEnd() -> bool;
+  IndexIterator(IndexIterator &&) = default;
+  auto operator=(IndexIterator &&) -> IndexIterator & = default;
+  IndexIterator(const IndexIterator &) = default;
+  auto operator=(const IndexIterator &) -> IndexIterator & = default;
 
-  auto operator*() -> std::pair<const KeyType &, const ValueType &>;
+  auto IsEnd() const -> bool;
+
+  auto operator*() const -> reference;
 
   auto operator++() -> IndexIterator &;
 
-  auto operator==(const IndexIterator &itr) const -> bool { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+  auto operator++(int) -> IndexIterator {
+    auto previous = *this;
+    ++*this;
+    return previous;
+  }
 
-  auto operator!=(const IndexIterator &itr) const -> bool { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+  auto operator==(const IndexIterator &itr) const -> bool;
+
+  auto operator!=(const IndexIterator &itr) const -> bool;
 
  private:
-  // add your own private member variables here
+  void SeekToLiveEntry();
+
+  std::shared_ptr<TracedBufferPoolManager> bpm_;
+  std::shared_ptr<ReadPageGuard> guard_;
+  std::optional<KeyComparator> comparator_;
+  int index_{0};
+  KeyType key_{};
+  ValueType value_{};
 };
 
 }  // namespace bustub

@@ -442,7 +442,21 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
  * @return : index iterator
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  auto header = bpm_->ReadPage(header_page_id_);
+  auto root_id = header.template As<BPlusTreeHeaderPage>()->root_page_id_;
+  if (root_id == INVALID_PAGE_ID) {
+    return {};
+  }
+  auto guard = bpm_->ReadPage(root_id);
+  header.Drop();
+  while (!guard.template As<BPlusTreePage>()->IsLeafPage()) {
+    auto child_id = guard.template As<InternalPage>()->ValueAt(0);
+    auto child = bpm_->ReadPage(child_id);
+    guard = std::move(child);
+  }
+  return INDEXITERATOR_TYPE(bpm_, std::move(guard), 0, comparator_);
+}
 
 /**
  * @brief Input parameter is low key, find the leaf page that contains the input key
@@ -450,7 +464,23 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { UNIMPLEMENTED("TODO(P2): Ad
  * @return : index iterator
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
+  auto header = bpm_->ReadPage(header_page_id_);
+  auto root_id = header.template As<BPlusTreeHeaderPage>()->root_page_id_;
+  if (root_id == INVALID_PAGE_ID) {
+    return {};
+  }
+  auto guard = bpm_->ReadPage(root_id);
+  header.Drop();
+  while (!guard.template As<BPlusTreePage>()->IsLeafPage()) {
+    auto *page = guard.template As<InternalPage>();
+    auto child_id = page->ValueAt(ChildPosition(page, key));
+    auto child = bpm_->ReadPage(child_id);
+    guard = std::move(child);
+  }
+  int index = LeafPosition(guard.template As<LeafPage>(), key);
+  return INDEXITERATOR_TYPE(bpm_, std::move(guard), index, comparator_);
+}
 
 /**
  * @brief Input parameter is void, construct an index iterator representing the end
@@ -458,7 +488,7 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { UNIMPLEME
  * @return : index iterator
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { return {}; }
 
 /**
  * @return Page id of the root of this tree
