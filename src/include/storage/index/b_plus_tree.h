@@ -122,6 +122,11 @@ class BPlusTree {
   std::shared_ptr<TracedBufferPoolManager> bpm_;
 
  private:
+  auto LeafPosition(const LeafPage *leaf, const KeyType &key) const -> int;
+  auto ChildPosition(const InternalPage *page, const KeyType &key) const -> int;
+  void RebuildLeaf(LeafPage *leaf, const std::vector<std::pair<KeyType, ValueType>> &entries,
+                   const std::vector<KeyType> &tombstones);
+
   void ToGraph(page_id_t page_id, const BPlusTreePage *page, std::ofstream &out);
 
   void PrintTree(page_id_t page_id, const BPlusTreePage *page);
