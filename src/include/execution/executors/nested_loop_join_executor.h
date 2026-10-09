@@ -13,6 +13,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "execution/executor_context.h"
@@ -42,6 +43,17 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
  private:
   /** The NestedLoopJoin plan node to be executed. */
   const NestedLoopJoinPlanNode *plan_;
+  std::unique_ptr<AbstractExecutor> left_executor_;
+  std::unique_ptr<AbstractExecutor> right_executor_;
+  std::vector<Tuple> right_tuples_;
+  std::vector<RID> right_rids_;
+  std::vector<Tuple> left_batch_;
+  std::vector<RID> left_rids_;
+  size_t left_offset_{0};
+  std::optional<Tuple> current_left_;
+  size_t right_offset_{0};
+  bool matched_{false};
+  bool right_exhausted_{false};
 };
 
 }  // namespace bustub

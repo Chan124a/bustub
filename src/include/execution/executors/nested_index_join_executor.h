@@ -13,6 +13,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "execution/executor_context.h"
@@ -41,5 +42,15 @@ class NestedIndexJoinExecutor : public AbstractExecutor {
  private:
   /** The nested index join plan node. */
   const NestedIndexJoinPlanNode *plan_;
+  std::unique_ptr<AbstractExecutor> child_executor_;
+  TableInfo *inner_table_{nullptr};
+  IndexInfo *index_info_{nullptr};
+  std::vector<Tuple> left_batch_;
+  std::vector<RID> left_rids_;
+  size_t left_offset_{0};
+  std::optional<Tuple> current_left_;
+  std::vector<RID> matches_;
+  size_t match_offset_{0};
+  bool matched_{false};
 };
 }  // namespace bustub

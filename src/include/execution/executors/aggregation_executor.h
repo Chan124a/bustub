@@ -13,6 +13,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -69,18 +70,38 @@ class SimpleAggregationHashTable {
    */
   void CombineAggregateValues(AggregateValue *result, const AggregateValue &input) {
     for (uint32_t i = 0; i < agg_exprs_.size(); i++) {
+      const auto &value = input.aggregates_[i];
+      auto &current = result->aggregates_[i];
       switch (agg_types_[i]) {
         case AggregationType::CountStarAggregate:
+          current = current.Add(ValueFactory::GetIntegerValue(1));
+          break;
         case AggregationType::CountAggregate:
+          if (!value.IsNull()) {
+            current =
+                current.IsNull() ? ValueFactory::GetIntegerValue(1) : current.Add(ValueFactory::GetIntegerValue(1));
+          }
+          break;
         case AggregationType::SumAggregate:
+          if (!value.IsNull()) {
+            current = current.IsNull() ? value : current.Add(value);
+          }
+          break;
         case AggregationType::MinAggregate:
+          if (!value.IsNull() && (current.IsNull() || value.CompareLessThan(current) == CmpBool::CmpTrue)) {
+            current = value;
+          }
+          break;
         case AggregationType::MaxAggregate:
+          if (!value.IsNull() && (current.IsNull() || value.CompareGreaterThan(current) == CmpBool::CmpTrue)) {
+            current = value;
+          }
           break;
       }
     }
-
-    UNIMPLEMENTED("TODO(P3): Add implementation.");
   }
+
+  void InsertInitial(const AggregateKey &key) { ht_.try_emplace(key, GenerateInitialAggregateValue()); }
 
   /**
    * Inserts a value into the hash table and then combines it with the current aggregation.
@@ -189,9 +210,9 @@ class AggregationExecutor : public AbstractExecutor {
   std::unique_ptr<AbstractExecutor> child_executor_;
 
   /** Simple aggregation hash table */
-  // TODO(Student): Uncomment SimpleAggregationHashTable aht_;
+  SimpleAggregationHashTable aht_;
 
   /** Simple aggregation hash table iterator */
-  // TODO(Student): Uncomment SimpleAggregationHashTable::Iterator aht_iterator_;
+  std::optional<SimpleAggregationHashTable::Iterator> aht_iterator_;
 };
 }  // namespace bustub
