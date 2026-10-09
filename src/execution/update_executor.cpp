@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <memory>
-#include "common/macros.h"
+#include "type/value_factory.h"
 
 #include "execution/executors/update_executor.h"
 
@@ -25,12 +25,14 @@ namespace bustub {
  */
 UpdateExecutor::UpdateExecutor(ExecutorContext *exec_ctx, const UpdatePlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
-    : AbstractExecutor(exec_ctx) {
-  UNIMPLEMENTED("TODO(P3): Add implementation.");
-}
+    : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {}
 
 /** Initialize the update */
-void UpdateExecutor::Init() { UNIMPLEMENTED("TODO(P3): Add implementation."); }
+void UpdateExecutor::Init() {
+  table_info_ = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid()).get();
+  child_executor_->Init();
+  done_ = false;
+}
 
 /**
  * Yield the number of rows updated in the table.
@@ -44,7 +46,48 @@ void UpdateExecutor::Init() { UNIMPLEMENTED("TODO(P3): Add implementation."); }
  */
 auto UpdateExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vector<bustub::RID> *rid_batch,
                           size_t batch_size) -> bool {
-  UNIMPLEMENTED("TODO(P3): Add implementation.");
+  tuple_batch->clear();
+  rid_batch->clear();
+  if (done_ || batch_size == 0) {
+    return false;
+  }
+  done_ = true;
+  int32_t count = 0;
+  std::vector<Tuple> tuples;
+  std::vector<RID> rids;
+  const auto indexes = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
+  while (child_executor_->Next(&tuples, &rids, BUSTUB_BATCH_SIZE)) {
+    for (size_t i = 0; i < tuples.size(); i++) {
+      auto meta = table_info_->table_->GetTupleMeta(rids[i]);
+      if (meta.is_deleted_) {
+        continue;
+      }
+      std::vector<Value> values;
+      for (const auto &expr : plan_->target_expressions_) {
+        values.push_back(expr->Evaluate(&tuples[i], child_executor_->GetOutputSchema()));
+      }
+      Tuple updated(values, &table_info_->schema_);
+      meta.is_deleted_ = true;
+      table_info_->table_->UpdateTupleMeta(meta, rids[i]);
+      for (const auto &index : indexes) {
+        index->index_->DeleteEntry(
+            tuples[i].KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), rids[i],
+            exec_ctx_->GetTransaction());
+      }
+      auto new_rid = table_info_->table_->InsertTuple({0, false}, updated);
+      if (!new_rid.has_value()) {
+        continue;
+      }
+      for (const auto &index : indexes) {
+        index->index_->InsertEntry(
+            updated.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), *new_rid,
+            exec_ctx_->GetTransaction());
+      }
+      count++;
+    }
+  }
+  tuple_batch->emplace_back(std::vector<Value>{ValueFactory::GetIntegerValue(count)}, &GetOutputSchema());
+  return true;
 }
 
 }  // namespace bustub

@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <optional>
 #include <vector>
 
 #include "execution/executor_context.h"
@@ -39,5 +40,7 @@ class SeqScanExecutor : public AbstractExecutor {
  private:
   /** The sequential scan plan node to be executed */
   const SeqScanPlanNode *plan_;
+  TableInfo *table_info_{nullptr};
+  std::optional<TableIterator> iterator_;
 };
 }  // namespace bustub

@@ -67,6 +67,9 @@ class IndexScanPlanNode : public AbstractPlanNode {
    */
   std::vector<AbstractExpressionRef> pred_keys_;
 
+  /** Equality values for each lookup, in index column order. */
+  std::vector<std::vector<AbstractExpressionRef>> lookup_keys_;
+
   // Add anything you want here for index lookup
 
  protected:
