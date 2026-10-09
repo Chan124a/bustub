@@ -153,6 +153,43 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool {
+  // Most inserts only touch one leaf. Keep a shared header latch so structural
+  // changes cannot invalidate the path while upgrading that leaf's latch.
+  {
+    auto header_guard = bpm_->ReadPage(header_page_id_);
+    auto root_id = header_guard.template As<BPlusTreeHeaderPage>()->root_page_id_;
+    if (root_id != INVALID_PAGE_ID) {
+      auto guard = bpm_->ReadPage(root_id);
+      while (!guard.template As<BPlusTreePage>()->IsLeafPage()) {
+        const auto *page = guard.template As<InternalPage>();
+        auto child = bpm_->ReadPage(page->ValueAt(ChildPosition(page, key)));
+        guard = std::move(child);
+      }
+      auto leaf_id = guard.GetPageId();
+      guard.Drop();
+      auto write_guard = bpm_->WritePage(leaf_id);
+      auto *leaf = write_guard.template AsMut<LeafPage>();
+      int pos = LeafPosition(leaf, key);
+      if (pos < leaf->GetSize() && comparator_(leaf->KeyAt(pos), key) == 0) {
+        auto tombs = leaf->GetTombstones();
+        auto it = std::find_if(tombs.begin(), tombs.end(), [&](const KeyType &t) { return comparator_(t, key) == 0; });
+        if (it == tombs.end()) {
+          return false;
+        }
+        leaf->RemoveTombstoneAt(static_cast<size_t>(it - tombs.begin()));
+        leaf->RemoveAt(pos);
+        leaf->InsertAt(pos, key, value);
+        return true;
+      }
+      if (leaf->GetSize() < leaf->GetMaxSize()) {
+        leaf->InsertAt(pos, key, value);
+        return true;
+      }
+    }
+  }
+
+  // Splits may propagate to the root, so retry with the header and entire
+  // access path exclusively latched.
   Context ctx;
   ctx.header_page_.emplace(bpm_->WritePage(header_page_id_));
   auto *header = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
@@ -272,6 +309,52 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key) {
+  {
+    auto header_guard = bpm_->ReadPage(header_page_id_);
+    auto root_id = header_guard.template As<BPlusTreeHeaderPage>()->root_page_id_;
+    if (root_id == INVALID_PAGE_ID) {
+      return;
+    }
+    auto guard = bpm_->ReadPage(root_id);
+    while (!guard.template As<BPlusTreePage>()->IsLeafPage()) {
+      const auto *page = guard.template As<InternalPage>();
+      auto child = bpm_->ReadPage(page->ValueAt(ChildPosition(page, key)));
+      guard = std::move(child);
+    }
+    auto leaf_id = guard.GetPageId();
+    guard.Drop();
+    auto write_guard = bpm_->WritePage(leaf_id);
+    auto *leaf = write_guard.template AsMut<LeafPage>();
+    int pos = LeafPosition(leaf, key);
+    if (pos == leaf->GetSize() || comparator_(leaf->KeyAt(pos), key) != 0) {
+      return;
+    }
+    auto tombs = leaf->GetTombstones();
+    for (const auto &tomb : tombs) {
+      if (comparator_(tomb, key) == 0) {
+        return;
+      }
+    }
+    bool physically_deletes = LEAF_PAGE_TOMB_CNT == 0 || tombs.size() == static_cast<size_t>(LEAF_PAGE_TOMB_CNT);
+    int min_size = leaf_id == root_id ? 1 : leaf->GetMinSize();
+    if (!physically_deletes || leaf->GetSize() > min_size) {
+      if constexpr (LEAF_PAGE_TOMB_CNT > 0) {
+        if (leaf->GetTombstoneCount() == static_cast<size_t>(LEAF_PAGE_TOMB_CNT)) {
+          auto oldest = tombs.front();
+          leaf->RemoveTombstoneAt(0);
+          leaf->RemoveAt(LeafPosition(leaf, oldest));
+          pos = LeafPosition(leaf, key);
+        }
+        leaf->InsertTombstone(pos);
+      } else {
+        leaf->RemoveAt(pos);
+      }
+      return;
+    }
+  }
+
+  // A physical underflow or root change needs the parent path. Recheck the
+  // key after obtaining exclusive latches because another writer may have won.
   Context ctx;
   ctx.header_page_.emplace(bpm_->WritePage(header_page_id_));
   auto *header = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
