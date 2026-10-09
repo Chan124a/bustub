@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -15,15 +17,40 @@ namespace bustub {
  */
 class IntermediateResultPage {
  public:
-  /**
-   * TODO(P3): Define and implement the methods for reading data from and writing data to the sort
-   * page. Feel free to add other helper methods.
-   */
+  void Init() {
+    used_ = 0;
+    count_ = 0;
+  }
+
+  auto Append(const Tuple &tuple) -> bool {
+    const auto length = tuple.GetLength();
+    if (length + sizeof(length) > BUSTUB_PAGE_SIZE - sizeof(IntermediateResultPage) - used_) {
+      return false;
+    }
+    std::memcpy(data_ + used_, &length, sizeof(length));
+    std::memcpy(data_ + used_ + sizeof(length), tuple.GetData(), length);
+    used_ += sizeof(length) + length;
+    count_++;
+    return true;
+  }
+
+  auto ReadTuple(uint32_t *offset) const -> Tuple {
+    uint32_t length;
+    std::memcpy(&length, data_ + *offset, sizeof(length));
+    auto tuple = Tuple(RID{}, data_ + *offset + sizeof(length), length);
+    *offset += sizeof(length) + length;
+    return tuple;
+  }
+
+  auto GetUsed() const -> uint32_t { return used_; }
+  auto GetCount() const -> uint32_t { return count_; }
+
  private:
-  /**
-   * TODO(P3): Define the private members. You may want to have some necessary metadata for
-   * the sort page before the start of the actual data.
-   */
+  uint32_t used_{0};
+  uint32_t count_{0};
+  char data_[0];
 };
+
+static_assert(sizeof(IntermediateResultPage) <= BUSTUB_PAGE_SIZE);
 
 }  // namespace bustub
