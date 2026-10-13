@@ -19,6 +19,39 @@ namespace bustub {
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
+TEST(TxnAbortTest, ParallelAbortAndReclaim) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  Execute(*bustub, "CREATE TABLE abort_table(a int, b int)");
+  Execute(*bustub, "INSERT INTO abort_table VALUES (0,10), (1,11), (2,12), (3,13)");
+  auto *snapshot = BeginTxn(*bustub, "snapshot");
+  std::vector<Transaction *> writers;
+  std::vector<txn_id_t> ids;
+  for (int i = 0; i < 4; i++) {
+    auto *txn = bustub->txn_manager_->Begin();
+    writers.push_back(txn);
+    ids.push_back(txn->GetTransactionId());
+    NoopWriter output;
+    ASSERT_TRUE(bustub->ExecuteSqlTxn(fmt::format("UPDATE abort_table SET b = 0 WHERE a = {}", i), output, txn));
+  }
+  std::vector<std::thread> threads;
+  for (auto *txn : writers) {
+    threads.emplace_back([&bustub, txn] { bustub->txn_manager_->Abort(txn); });
+  }
+  for (auto &thread : threads) {
+    thread.join();
+  }
+  WithTxn(snapshot, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM abort_table",
+                                    IntResult{{0, 10}, {1, 11}, {2, 12}, {3, 13}}));
+  bustub->txn_manager_->GarbageCollection();
+  for (auto id : ids) {
+    EXPECT_EQ(bustub->txn_manager_->txn_map_.count(id), 0);
+  }
+  Execute(*bustub, "UPDATE abort_table SET b = b + 1");
+  WithTxn(snapshot, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM abort_table",
+                                    IntResult{{0, 10}, {1, 11}, {2, 12}, {3, 13}}));
+  WithTxn(snapshot, CommitTxn(*bustub, _var, _txn));
+}
+
 TEST(TxnSerializableTest, DISABLED_SerializableTest) {  // NOLINT
   fmt::println(stderr, "--- SerializableTest2: Serializable ---");
   {

@@ -112,7 +112,26 @@ void TransactionManager::Abort(Transaction *txn) {
     throw Exception("txn not in running / tainted state");
   }
 
-  // TODO(P4): Implement the abort logic!
+  for (const auto &[table_oid, rids] : txn->GetWriteSets()) {
+    auto table = catalog_->GetTable(table_oid);
+    auto *heap = table->table_.get();
+    for (const auto &rid : rids) {
+      auto guard = heap->AcquireTablePageWriteLock(rid);
+      auto *page = guard.AsMut<TablePage>();
+      auto [meta, tuple] = heap->GetTupleWithLockAcquired(rid, page);
+      BUSTUB_ENSURE(meta.ts_ == txn->GetTransactionTempTs(), "aborting a tuple owned by another transaction");
+      auto link = GetUndoLink(rid);
+      if (link.has_value() && link->IsValid() && link->prev_txn_ == txn->GetTransactionId()) {
+        auto log = txn->GetUndoLog(link->prev_log_idx_);
+        auto restored = ReconstructTuple(&table->schema_, tuple, meta, {log});
+        heap->UpdateTupleInPlaceWithLockAcquired({log.ts_, log.is_deleted_}, restored.value_or(tuple), rid, page);
+        UpdateUndoLink(rid, log.prev_version_.IsValid() ? std::make_optional(log.prev_version_) : std::nullopt);
+      } else {
+        heap->UpdateTupleInPlaceWithLockAcquired({0, true}, tuple, rid, page);
+        UpdateUndoLink(rid, std::nullopt);
+      }
+    }
+  }
 
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
   txn->state_ = TransactionState::ABORTED;
