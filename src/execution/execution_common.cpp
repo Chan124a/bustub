@@ -149,7 +149,21 @@ auto CollectUndoLogs(RID rid, const TupleMeta &base_meta, const Tuple &base_tupl
  */
 auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple, timestamp_t ts,
                         UndoLink prev_version) -> UndoLog {
-  UNIMPLEMENTED("not implemented");
+  std::vector<bool> fields(schema->GetColumnCount(), false);
+  std::vector<Column> columns;
+  std::vector<Value> values;
+  if (base_tuple != nullptr) {
+    for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+      auto old_value = base_tuple->GetValue(schema, i);
+      if (target_tuple == nullptr || !old_value.CompareExactlyEquals(target_tuple->GetValue(schema, i))) {
+        fields[i] = true;
+        columns.push_back(schema->GetColumn(i));
+        values.push_back(old_value);
+      }
+    }
+  }
+  Schema partial_schema(columns);
+  return {base_tuple == nullptr, fields, Tuple(values, &partial_schema), ts, prev_version};
 }
 
 /**
@@ -164,7 +178,37 @@ auto GenerateNewUndoLog(const Schema *schema, const Tuple *base_tuple, const Tup
  */
 auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const Tuple *target_tuple,
                             const UndoLog &log) -> UndoLog {
-  UNIMPLEMENTED("not implemented");
+  // A tombstone before the first write needs no field values, regardless of subsequent writes.
+  if (log.is_deleted_) {
+    return log;
+  }
+  auto fields = log.modified_fields_;
+  std::vector<Column> old_columns;
+  for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+    if (fields[i]) {
+      old_columns.push_back(schema->GetColumn(i));
+    }
+  }
+  Schema old_schema(old_columns);
+  std::vector<Column> columns;
+  std::vector<Value> values;
+  uint32_t partial_idx = 0;
+  for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+    if (fields[i]) {
+      columns.push_back(schema->GetColumn(i));
+      values.push_back(log.tuple_.GetValue(&old_schema, partial_idx++));
+    } else {
+      BUSTUB_ENSURE(base_tuple != nullptr, "undo of deletion must contain all original fields");
+      auto old_value = base_tuple->GetValue(schema, i);
+      if (target_tuple == nullptr || !old_value.CompareExactlyEquals(target_tuple->GetValue(schema, i))) {
+        fields[i] = true;
+        columns.push_back(schema->GetColumn(i));
+        values.push_back(old_value);
+      }
+    }
+  }
+  Schema partial_schema(columns);
+  return {log.is_deleted_, fields, Tuple(values, &partial_schema), log.ts_, log.prev_version_};
 }
 
 void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const TableInfo *table_info,
