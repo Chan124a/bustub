@@ -77,7 +77,33 @@ auto GenerateSortKey(const Tuple &tuple, const std::vector<OrderBy> &order_bys, 
  */
 auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const TupleMeta &base_meta,
                       const std::vector<UndoLog> &undo_logs) -> std::optional<Tuple> {
-  UNIMPLEMENTED("not implemented");
+  std::vector<Value> values;
+  for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+    values.push_back(base_tuple.GetValue(schema, i));
+  }
+  bool deleted = base_meta.is_deleted_;
+  for (const auto &log : undo_logs) {
+    std::vector<Column> columns;
+    for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+      if (log.modified_fields_[i]) {
+        columns.push_back(schema->GetColumn(i));
+      }
+    }
+    Schema partial_schema(columns);
+    uint32_t partial_idx = 0;
+    for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
+      if (log.modified_fields_[i]) {
+        values[i] = log.tuple_.GetValue(&partial_schema, partial_idx++);
+      }
+    }
+    deleted = log.is_deleted_;
+  }
+  if (deleted) {
+    return std::nullopt;
+  }
+  Tuple tuple(values, schema);
+  tuple.SetRid(base_tuple.GetRid());
+  return tuple;
 }
 
 /**
