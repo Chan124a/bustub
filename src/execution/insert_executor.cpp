@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include <memory>
+#include <utility>
+#include <vector>
 #include "type/value_factory.h"
 
 #include "execution/execution_common.h"

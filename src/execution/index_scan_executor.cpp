@@ -13,6 +13,7 @@
 #include "execution/executors/index_scan_executor.h"
 #include <set>
 #include <utility>
+#include <vector>
 
 #include "concurrency/transaction_manager.h"
 #include "execution/execution_common.h"
@@ -37,6 +38,7 @@ void CollectIndexRids(IndexInfo *index_info, const IndexScanPlanNode *plan, Tran
   std::set<std::pair<page_id_t, uint32_t>> seen;
   for (const auto &lookup : plan->lookup_keys_) {
     std::vector<Value> values;
+    values.reserve(schema->GetColumnCount());
     for (const auto &expr : lookup) {
       values.push_back(expr->Evaluate(nullptr, *schema));
     }
@@ -84,6 +86,10 @@ IndexScanExecutor::IndexScanExecutor(ExecutorContext *exec_ctx, const IndexScanP
     : AbstractExecutor(exec_ctx), plan_(plan) {}
 
 void IndexScanExecutor::Init() {
+  auto *txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+    txn->AppendScanPredicate(plan_->table_oid_, plan_->filter_predicate_);
+  }
   auto index_info = exec_ctx_->GetCatalog()->GetIndex(plan_->index_oid_);
   table_info_ = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_).get();
   scan_rids_.clear();

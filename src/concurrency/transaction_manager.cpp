@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "concurrency/transaction_manager.h"
+#include <algorithm>
+#include <utility>
 
 #include <memory>
 #include <mutex>  // NOLINT
@@ -53,9 +55,70 @@ auto TransactionManager::Begin(IsolationLevel isolation_level) -> Transaction * 
   return txn_ref;
 }
 
-/** @brief Verify if a txn satisfies serializability. We will not test this function and you can change / remove it as
- * you want. */
-auto TransactionManager::VerifyTxn(Transaction *txn) -> bool { return true; }
+/** Validate committed changes after the reader's snapshot against its scan predicates. */
+auto TransactionManager::VerifyTxn(Transaction *txn) -> bool {
+  if (txn->GetWriteSets().empty()) {
+    return true;
+  }
+  std::unordered_map<table_oid_t, std::unordered_set<RID>> changed;
+  {
+    std::shared_lock<std::shared_mutex> lock(txn_map_mutex_);
+    for (const auto &[id, other] : txn_map_) {
+      if (other->GetTransactionState() == TransactionState::COMMITTED && other->GetCommitTs() > txn->GetReadTs()) {
+        for (const auto &[table_oid, rids] : other->GetWriteSets()) {
+          changed[table_oid].insert(rids.begin(), rids.end());
+        }
+      }
+    }
+  }
+  for (const auto &[table_oid, rids] : changed) {
+    const auto &predicates = txn->GetScanPredicates();
+    auto read = predicates.find(table_oid);
+    if (read == predicates.end()) {
+      continue;
+    }
+    auto table = catalog_->GetTable(table_oid);
+    const auto matches = [&read, &table](const std::optional<Tuple> &image) {
+      if (!image.has_value()) {
+        return false;
+      }
+      return std::any_of(read->second.begin(), read->second.end(),
+                         [&image, &table](const AbstractExpressionRef &predicate) {
+                           if (predicate == nullptr) {
+                             return true;
+                           }
+                           auto value = predicate->Evaluate(&*image, table->schema_);
+                           return !value.IsNull() && value.GetAs<bool>();
+                         });
+    };
+    for (const auto &rid : rids) {
+      auto [meta, tuple, link] = GetTupleAndUndoLink(this, table->table_.get(), rid);
+      auto ts = meta.ts_;
+      auto image = meta.is_deleted_ ? std::nullopt : std::make_optional(tuple);
+      while (ts > txn->GetReadTs()) {
+        std::optional<UndoLog> log;
+        if (link.has_value() && link->IsValid()) {
+          log = GetUndoLogOptional(*link);
+          BUSTUB_ENSURE(log.has_value(), "validation requires a reclaimed undo log");
+        }
+        auto before =
+            log.has_value() ? ReconstructTuple(&table->schema_, tuple, {ts, !image.has_value()}, {*log}) : std::nullopt;
+        // An uncommitted head is skipped; only committed before/after images participate in validation.
+        if (ts < TXN_START_ID && (matches(image) || matches(before))) {
+          return false;
+        }
+        if (!log.has_value()) {
+          break;
+        }
+        ts = log->ts_;
+        link = log->prev_version_;
+        tuple = before.value_or(tuple);
+        image = std::move(before);
+      }
+    }
+  }
+  return true;
+}
 
 /**
  * Commits a transaction.
@@ -142,6 +205,19 @@ void TransactionManager::Abort(Transaction *txn) {
  * heap. */
 void TransactionManager::GarbageCollection() {
   const auto watermark = GetWatermark();
+  std::optional<timestamp_t> serializable_read_ts;
+  {
+    std::shared_lock<std::shared_mutex> lock(txn_map_mutex_);
+    for (const auto &[id, txn] : txn_map_) {
+      auto state = txn->GetTransactionState();
+      if ((state == TransactionState::RUNNING || state == TransactionState::TAINTED) &&
+          txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+        if (!serializable_read_ts.has_value() || txn->GetReadTs() < *serializable_read_ts) {
+          serializable_read_ts = txn->GetReadTs();
+        }
+      }
+    }
+  }
   std::unordered_set<txn_id_t> needed;
   for (const auto &name : catalog_->GetTableNames()) {
     auto table = catalog_->GetTable(name);
@@ -160,8 +236,11 @@ void TransactionManager::GarbageCollection() {
   std::unique_lock<std::shared_mutex> lock(txn_map_mutex_);
   for (auto iter = txn_map_.begin(); iter != txn_map_.end();) {
     auto state = iter->second->GetTransactionState();
+    const bool needed_for_validation = serializable_read_ts.has_value() && state == TransactionState::COMMITTED &&
+                                       iter->second->GetCommitTs() > *serializable_read_ts &&
+                                       !iter->second->GetWriteSets().empty();
     if ((state == TransactionState::COMMITTED || state == TransactionState::ABORTED) &&
-        needed.count(iter->first) == 0) {
+        needed.count(iter->first) == 0 && !needed_for_validation) {
       iter = txn_map_.erase(iter);
     } else {
       ++iter;

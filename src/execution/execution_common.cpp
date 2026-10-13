@@ -11,6 +11,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "execution/execution_common.h"
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "catalog/catalog.h"
 #include "common/exception.h"
@@ -79,6 +82,7 @@ auto GenerateSortKey(const Tuple &tuple, const std::vector<OrderBy> &order_bys, 
 auto ReconstructTuple(const Schema *schema, const Tuple &base_tuple, const TupleMeta &base_meta,
                       const std::vector<UndoLog> &undo_logs) -> std::optional<Tuple> {
   std::vector<Value> values;
+  values.reserve(schema->GetColumnCount());
   for (uint32_t i = 0; i < schema->GetColumnCount(); i++) {
     values.push_back(base_tuple.GetValue(schema, i));
   }

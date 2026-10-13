@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include <memory>
+#include <utility>
+#include <vector>
 #include "type/value_factory.h"
 
 #include "execution/execution_common.h"
@@ -73,6 +75,7 @@ auto UpdateExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vector<b
   std::vector<std::pair<Tuple, RID>> key_updates;
   for (const auto &[tuple, rid] : inputs) {
     std::vector<Value> values;
+    values.reserve(plan_->target_expressions_.size());
     for (const auto &expr : plan_->target_expressions_) {
       values.push_back(expr->Evaluate(&tuple, child_executor_->GetOutputSchema()));
     }

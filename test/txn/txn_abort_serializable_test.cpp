@@ -52,6 +52,90 @@ TEST(TxnAbortTest, ParallelAbortAndReclaim) {
   WithTxn(snapshot, CommitTxn(*bustub, _var, _txn));
 }
 
+TEST(TxnSerializableTest, IndexPhantomAfterGarbageCollection) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  EnsureIndexScan(*bustub);
+  Execute(*bustub, "CREATE TABLE phantom_table(a int primary key, b int)");
+  Execute(*bustub, "CREATE TABLE audit_table(a int)");
+  auto *reader = BeginTxnSerializable(*bustub, "reader");
+  auto *readonly = BeginTxnSerializable(*bustub, "readonly");
+  WithTxn(reader, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM phantom_table WHERE a = 7", IntResult{}));
+  WithTxn(readonly, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM phantom_table WHERE a = 7", IntResult{}));
+  WithTxn(reader, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO audit_table VALUES (1)"));
+  Execute(*bustub, "INSERT INTO phantom_table VALUES (7,70)");
+  bustub->txn_manager_->GarbageCollection();
+  WithTxn(reader, CommitTxn(*bustub, _var, _txn, EXPECT_FAIL));
+  WithTxn(readonly, CommitTxn(*bustub, _var, _txn));
+  auto *check = BeginTxn(*bustub, "check");
+  WithTxn(check, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM audit_table", IntResult{}));
+  WithTxn(check, CommitTxn(*bustub, _var, _txn));
+}
+
+TEST(TxnSerializableTest, VersionTransitionsAfterGarbageCollection) {
+  struct Scenario {
+    int initial_value_;
+    std::string predicate_;
+    std::string first_change_;
+    std::string second_change_;
+    bool success_;
+  };
+  const std::vector<Scenario> scenarios{
+      {0, "b = 1", "INSERT INTO history_table VALUES (2,1)", "", false},
+      {1, "b = 1", "DELETE FROM history_table", "", false},
+      {0, "b = 1", "UPDATE history_table SET b = 1", "", false},
+      {1, "b = 1", "UPDATE history_table SET b = 0", "", false},
+      {0, "b = 1", "UPDATE history_table SET b = 1", "UPDATE history_table SET b = 0", false},
+      {1, "b = 1", "UPDATE history_table SET b = 1", "", false},
+      {0, "b = 1", "INSERT INTO history_table VALUES (2,1); DELETE FROM history_table WHERE a = 2", "", true},
+      {0, "b = 1", "UPDATE history_table SET b = 2", "", true},
+      {0, "", "INSERT INTO history_table VALUES (2,0)", "", false}};
+  for (const auto &scenario : scenarios) {
+    SCOPED_TRACE(scenario.first_change_);
+    auto bustub = std::make_unique<BusTubInstance>();
+    Execute(*bustub, "CREATE TABLE history_table(a int primary key, b int)");
+    Execute(*bustub, "CREATE TABLE audit_table(a int)");
+    Execute(*bustub, fmt::format("INSERT INTO history_table VALUES (1,{})", scenario.initial_value_));
+    auto *reader = BeginTxnSerializable(*bustub, "reader");
+    WithTxn(reader, ExecuteTxn(*bustub, _var, _txn,
+                               scenario.predicate_.empty()
+                                   ? "SELECT * FROM history_table"
+                                   : fmt::format("SELECT * FROM history_table WHERE {}", scenario.predicate_)));
+    WithTxn(reader, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO audit_table VALUES (1)"));
+    Execute(*bustub, scenario.first_change_);
+    if (!scenario.second_change_.empty()) {
+      Execute(*bustub, scenario.second_change_);
+    }
+    bustub->txn_manager_->GarbageCollection();
+    EXPECT_EQ(bustub->txn_manager_->Commit(reader), scenario.success_);
+    EXPECT_EQ(reader->GetTransactionState(),
+              scenario.success_ ? TransactionState::COMMITTED : TransactionState::ABORTED);
+    auto *check = BeginTxn(*bustub, "check");
+    WithTxn(check, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM audit_table",
+                                   scenario.success_ ? IntResult{{1}} : IntResult{}));
+    WithTxn(check, CommitTxn(*bustub, _var, _txn));
+  }
+}
+
+TEST(TxnSerializableTest, ValidateBehindUncommittedHead) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  Execute(*bustub, "CREATE TABLE head_table(a int primary key, b int)");
+  Execute(*bustub, "CREATE TABLE audit_table(a int)");
+  Execute(*bustub, "INSERT INTO head_table VALUES (1,0)");
+  auto *reader = BeginTxnSerializable(*bustub, "reader");
+  WithTxn(reader, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM head_table WHERE b = 1", IntResult{}));
+  WithTxn(reader, ExecuteTxn(*bustub, _var, _txn, "INSERT INTO audit_table VALUES (1)"));
+  Execute(*bustub, "UPDATE head_table SET b = 1");
+  auto *pending = BeginTxnSerializable(*bustub, "pending");
+  WithTxn(pending, ExecuteTxn(*bustub, _var, _txn, "UPDATE head_table SET b = 2"));
+  bustub->txn_manager_->GarbageCollection();
+  WithTxn(reader, CommitTxn(*bustub, _var, _txn, EXPECT_FAIL));
+  WithTxn(pending, AbortTxn(*bustub, _var, _txn));
+  auto *check = BeginTxn(*bustub, "check");
+  WithTxn(check, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM head_table", IntResult{{1, 1}}));
+  WithTxn(check, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM audit_table", IntResult{}));
+  WithTxn(check, CommitTxn(*bustub, _var, _txn));
+}
+
 TEST(TxnSerializableTest, DISABLED_SerializableTest) {  // NOLINT
   fmt::println(stderr, "--- SerializableTest2: Serializable ---");
   {

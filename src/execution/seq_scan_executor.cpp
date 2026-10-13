@@ -11,6 +11,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "execution/executors/seq_scan_executor.h"
+#include <utility>
+#include <vector>
 
 #include "concurrency/transaction_manager.h"
 #include "execution/execution_common.h"
@@ -27,6 +29,10 @@ SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNod
 
 /** Initialize the sequential scan */
 void SeqScanExecutor::Init() {
+  auto *txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::SERIALIZABLE) {
+    txn->AppendScanPredicate(plan_->table_oid_, plan_->filter_predicate_);
+  }
   table_info_ = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_).get();
   iterator_.emplace(table_info_->table_->MakeIterator());
 }
