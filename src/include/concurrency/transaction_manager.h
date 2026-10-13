@@ -55,7 +55,10 @@ class TransactionManager {
   auto GetUndoLog(UndoLink link) -> UndoLog;
 
   /** @brief Get the lowest read timestamp in the system. */
-  auto GetWatermark() -> timestamp_t { return running_txns_.GetWatermark(); }
+  auto GetWatermark() -> timestamp_t {
+    std::shared_lock<std::shared_mutex> lock(txn_map_mutex_);
+    return running_txns_.GetWatermark();
+  }
 
   void GarbageCollection();
 

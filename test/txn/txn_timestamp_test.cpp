@@ -28,6 +28,43 @@
 
 namespace bustub {
 
+TEST(TxnTsTest, RepeatedReadTimestamps) {
+  Watermark watermark(0);
+  watermark.AddTxn(0);
+  watermark.AddTxn(0);
+  watermark.AddTxn(2);
+  watermark.UpdateCommitTs(3);
+  watermark.RemoveTxn(0);
+  EXPECT_EQ(watermark.GetWatermark(), 0);
+  watermark.RemoveTxn(0);
+  EXPECT_EQ(watermark.GetWatermark(), 2);
+  watermark.RemoveTxn(2);
+  EXPECT_EQ(watermark.GetWatermark(), 3);
+}
+
+TEST(TxnTsTest, ConcurrentTimestampPublication) {
+  TransactionManager manager;
+  auto writer = std::async(std::launch::async, [&manager] {
+    for (int i = 0; i < 1000; i++) {
+      auto *txn = manager.Begin();
+      EXPECT_TRUE(manager.Commit(txn));
+    }
+  });
+  auto reader = std::async(std::launch::async, [&manager] {
+    timestamp_t previous = 0;
+    for (int i = 0; i < 1000; i++) {
+      auto *txn = manager.Begin();
+      EXPECT_GE(txn->GetReadTs(), previous);
+      EXPECT_LE(manager.GetWatermark(), txn->GetReadTs());
+      previous = txn->GetReadTs();
+      manager.Abort(txn);
+    }
+  });
+  writer.get();
+  reader.get();
+  EXPECT_EQ(manager.GetWatermark(), 1000);
+}
+
 TEST(TxnTsTest, DISABLED_WatermarkPerformance) {  // NOLINT
   const int txn_n = 1000000;
   {
