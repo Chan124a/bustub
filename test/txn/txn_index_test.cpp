@@ -26,6 +26,28 @@ namespace bustub {
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
+TEST(TxnIndexTest, CompositeKeyPermutationAndAbort) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  EnsureIndexScan(*bustub);
+  Execute(*bustub, "CREATE TABLE key_table(a int, b int, c int, PRIMARY KEY(a, b))");
+  Execute(*bustub, "INSERT INTO key_table VALUES (1,10,100), (2,10,200), (3,10,300)");
+  auto *snapshot = BeginTxn(*bustub, "snapshot");
+  auto *writer = BeginTxn(*bustub, "writer");
+  WithTxn(writer, ExecuteTxn(*bustub, _var, _txn, "UPDATE key_table SET a = 4 - a"));
+  WithTxn(writer, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM key_table",
+                                  IntResult{{3, 10, 100}, {2, 10, 200}, {1, 10, 300}}));
+  WithTxn(snapshot,
+          QueryShowResult(*bustub, _var, _txn, "SELECT c FROM key_table WHERE a = 1 AND b = 10", IntResult{{100}}));
+  WithTxn(writer, AbortTxn(*bustub, _var, _txn));
+  auto *duplicate = BeginTxn(*bustub, "duplicate");
+  WithTxn(duplicate, ExecuteTxnTainted(*bustub, _var, _txn, "UPDATE key_table SET a = 1"));
+  WithTxn(duplicate, AbortTxn(*bustub, _var, _txn));
+  WithTxn(snapshot, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM key_table",
+                                    IntResult{{1, 10, 100}, {2, 10, 200}, {3, 10, 300}}));
+  WithTxn(snapshot, CommitTxn(*bustub, _var, _txn));
+  TableHeapEntryNoMoreThan(*bustub, bustub->catalog_->GetTable("key_table").get(), 3);
+}
+
 TEST(TxnIndexTest, DISABLED_IndexInsertTest) {  // NOLINT
   auto bustub = std::make_unique<BusTubInstance>();
   const std::string query = "SELECT * FROM maintable";

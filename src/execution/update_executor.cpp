@@ -62,14 +62,44 @@ auto UpdateExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vector<b
       inputs.emplace_back(tuples[i], rids[i]);
     }
   }
+  const auto indexes = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
+  std::shared_ptr<IndexInfo> primary;
+  for (const auto &index : indexes) {
+    if (index->is_primary_key_) {
+      primary = index;
+      break;
+    }
+  }
+  std::vector<std::pair<Tuple, RID>> key_updates;
   for (const auto &[tuple, rid] : inputs) {
     std::vector<Value> values;
     for (const auto &expr : plan_->target_expressions_) {
       values.push_back(expr->Evaluate(&tuple, child_executor_->GetOutputSchema()));
     }
     Tuple updated(values, &table_info_->schema_);
-    WriteTuple(exec_ctx_->GetTransactionManager(), exec_ctx_->GetTransaction(), table_info_, rid, &updated);
+    bool key_changed = false;
+    if (primary != nullptr) {
+      for (auto attr : primary->index_->GetKeyAttrs()) {
+        if (!tuple.GetValue(&table_info_->schema_, attr)
+                 .CompareExactlyEquals(updated.GetValue(&table_info_->schema_, attr))) {
+          key_changed = true;
+          break;
+        }
+      }
+    }
+    if (key_changed) {
+      key_updates.emplace_back(std::move(updated), rid);
+    } else {
+      WriteTuple(exec_ctx_->GetTransactionManager(), exec_ctx_->GetTransaction(), table_info_, rid, &updated);
+    }
     count++;
+  }
+  // Delete all old keys before inserting any new key, allowing key permutations within a statement.
+  for (const auto &[tuple, rid] : key_updates) {
+    WriteTuple(exec_ctx_->GetTransactionManager(), exec_ctx_->GetTransaction(), table_info_, rid, nullptr);
+  }
+  for (const auto &[tuple, rid] : key_updates) {
+    InsertIndexedTuple(exec_ctx_->GetTransactionManager(), exec_ctx_->GetTransaction(), table_info_, indexes, tuple);
   }
   tuple_batch->emplace_back(std::vector<Value>{ValueFactory::GetIntegerValue(count)}, &GetOutputSchema());
   return true;
