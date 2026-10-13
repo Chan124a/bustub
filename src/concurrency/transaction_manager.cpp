@@ -79,7 +79,17 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
     }
   }
 
-  // TODO(P4): Implement the commit logic!
+  for (const auto &[table_oid, rids] : txn->GetWriteSets()) {
+    auto table = catalog_->GetTable(table_oid);
+    for (const auto &rid : rids) {
+      auto guard = table->table_->AcquireTablePageWriteLock(rid);
+      auto *page = guard.AsMut<TablePage>();
+      auto meta = table->table_->GetTupleMetaWithLockAcquired(rid, page);
+      BUSTUB_ENSURE(meta.ts_ == txn->GetTransactionTempTs(), "committing a tuple owned by another transaction");
+      meta.ts_ = commit_ts;
+      page->UpdateTupleMeta(meta, rid);
+    }
+  }
 
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
 
