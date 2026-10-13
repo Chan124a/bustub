@@ -64,7 +64,11 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
 
 /** Write a tuple or deletion marker while holding its table page latch. */
 void WriteTuple(TransactionManager *txn_mgr, Transaction *txn, const TableInfo *table_info, RID rid,
-                const Tuple *target_tuple);
+                const Tuple *target_tuple, bool require_deleted = false);
+
+/** Insert a new tuple, or reuse the primary key's tombstone RID. */
+auto InsertIndexedTuple(TransactionManager *txn_mgr, Transaction *txn, const TableInfo *table_info,
+                        const std::vector<std::shared_ptr<IndexInfo>> &indexes, const Tuple &tuple) -> RID;
 
 // TODO(P4): Add new functions as needed... You are likely need to define some more functions.
 //

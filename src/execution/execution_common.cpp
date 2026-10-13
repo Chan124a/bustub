@@ -213,7 +213,7 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
 }
 
 void WriteTuple(TransactionManager *txn_mgr, Transaction *txn, const TableInfo *table_info, RID rid,
-                const Tuple *target_tuple) {
+                const Tuple *target_tuple, bool require_deleted) {
   auto *heap = table_info->table_.get();
   auto guard = heap->AcquireTablePageWriteLock(rid);
   auto *page = guard.AsMut<TablePage>();
@@ -222,6 +222,10 @@ void WriteTuple(TransactionManager *txn_mgr, Transaction *txn, const TableInfo *
   if (!self_write && meta.ts_ > txn->GetReadTs()) {
     txn->SetTainted();
     throw ExecutionException("write-write conflict");
+  }
+  if (require_deleted && !meta.is_deleted_) {
+    txn->SetTainted();
+    throw ExecutionException("duplicate primary key");
   }
   auto link = txn_mgr->GetUndoLink(rid);
   const auto *before = meta.is_deleted_ ? nullptr : &base_tuple;
@@ -238,6 +242,35 @@ void WriteTuple(TransactionManager *txn_mgr, Transaction *txn, const TableInfo *
                                            target_tuple == nullptr ? base_tuple : *target_tuple, rid, page);
   txn_mgr->UpdateUndoLink(rid, link);
   txn->AppendWriteSet(table_info->oid_, rid);
+}
+
+auto InsertIndexedTuple(TransactionManager *txn_mgr, Transaction *txn, const TableInfo *table_info,
+                        const std::vector<std::shared_ptr<IndexInfo>> &indexes, const Tuple &tuple) -> RID {
+  for (const auto &index : indexes) {
+    if (index->is_primary_key_) {
+      std::vector<RID> matches;
+      auto key = tuple.KeyFromTuple(table_info->schema_, index->key_schema_, index->index_->GetKeyAttrs());
+      index->index_->ScanKey(key, &matches, txn);
+      if (!matches.empty()) {
+        WriteTuple(txn_mgr, txn, table_info, matches.front(), &tuple, true);
+        return matches.front();
+      }
+    }
+  }
+  auto rid = table_info->table_->InsertTuple({txn->GetTransactionTempTs(), false}, tuple);
+  if (!rid.has_value()) {
+    txn->SetTainted();
+    throw ExecutionException("table insertion failed");
+  }
+  txn->AppendWriteSet(table_info->oid_, *rid);
+  for (const auto &index : indexes) {
+    auto key = tuple.KeyFromTuple(table_info->schema_, index->key_schema_, index->index_->GetKeyAttrs());
+    if (!index->index_->InsertEntry(key, *rid, txn) && index->is_primary_key_) {
+      txn->SetTainted();
+      throw ExecutionException("concurrent primary key insertion");
+    }
+  }
+  return *rid;
 }
 
 void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const TableInfo *table_info,

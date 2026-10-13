@@ -14,6 +14,8 @@
 #include <set>
 #include <utility>
 
+#include "concurrency/transaction_manager.h"
+#include "execution/execution_common.h"
 #include "storage/index/b_plus_tree_index.h"
 #include "type/type.h"
 
@@ -109,10 +111,17 @@ auto IndexScanExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vecto
   rid_batch->clear();
   while (tuple_batch->size() < batch_size && next_rid_ < scan_rids_.size()) {
     auto rid = scan_rids_[next_rid_++];
-    auto [meta, tuple] = table_info_->table_->GetTuple(rid);
-    if (meta.is_deleted_) {
+    auto *txn_mgr = exec_ctx_->GetTransactionManager();
+    auto [meta, base_tuple, link] = GetTupleAndUndoLink(txn_mgr, table_info_->table_.get(), rid);
+    auto logs = CollectUndoLogs(rid, meta, base_tuple, link, exec_ctx_->GetTransaction(), txn_mgr);
+    if (!logs.has_value()) {
       continue;
     }
+    auto visible = ReconstructTuple(&table_info_->schema_, base_tuple, meta, *logs);
+    if (!visible.has_value()) {
+      continue;
+    }
+    auto tuple = std::move(*visible);
     if (plan_->filter_predicate_ != nullptr) {
       auto value = plan_->filter_predicate_->Evaluate(&tuple, GetOutputSchema());
       if (value.IsNull() || !value.GetAs<bool>()) {
