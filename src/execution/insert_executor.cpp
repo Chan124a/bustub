@@ -58,10 +58,13 @@ auto InsertExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vector<b
   const auto indexes = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
   while (child_executor_->Next(&tuples, &rids, BUSTUB_BATCH_SIZE)) {
     for (const auto &tuple : tuples) {
-      auto rid = table_info_->table_->InsertTuple({0, false}, tuple);
+      auto *txn = exec_ctx_->GetTransaction();
+      auto rid = table_info_->table_->InsertTuple({txn->GetTransactionTempTs(), false}, tuple);
       if (!rid.has_value()) {
-        continue;
+        txn->SetTainted();
+        throw ExecutionException("table insertion failed");
       }
+      txn->AppendWriteSet(table_info_->oid_, *rid);
       for (const auto &index : indexes) {
         index->index_->InsertEntry(
             tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), *rid,
