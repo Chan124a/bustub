@@ -59,6 +59,18 @@ auto InsertExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vector<b
   while (child_executor_->Next(&tuples, &rids, BUSTUB_BATCH_SIZE)) {
     for (const auto &tuple : tuples) {
       auto *txn = exec_ctx_->GetTransaction();
+      for (const auto &index : indexes) {
+        if (index->is_primary_key_) {
+          std::vector<RID> matches;
+          index->index_->ScanKey(
+              tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), &matches,
+              txn);
+          if (!matches.empty()) {
+            txn->SetTainted();
+            throw ExecutionException("duplicate primary key");
+          }
+        }
+      }
       auto rid = table_info_->table_->InsertTuple({txn->GetTransactionTempTs(), false}, tuple);
       if (!rid.has_value()) {
         txn->SetTainted();
@@ -66,9 +78,13 @@ auto InsertExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vector<b
       }
       txn->AppendWriteSet(table_info_->oid_, *rid);
       for (const auto &index : indexes) {
-        index->index_->InsertEntry(
+        auto inserted = index->index_->InsertEntry(
             tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), *rid,
             exec_ctx_->GetTransaction());
+        if (!inserted && index->is_primary_key_) {
+          txn->SetTainted();
+          throw ExecutionException("concurrent primary key insertion");
+        }
       }
       count++;
     }
