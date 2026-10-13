@@ -121,6 +121,33 @@ void TransactionManager::Abort(Transaction *txn) {
 
 /** @brief Stop-the-world garbage collection. Will be called only when all transactions are not accessing the table
  * heap. */
-void TransactionManager::GarbageCollection() { UNIMPLEMENTED("not implemented"); }
+void TransactionManager::GarbageCollection() {
+  const auto watermark = GetWatermark();
+  std::unordered_set<txn_id_t> needed;
+  for (const auto &name : catalog_->GetTableNames()) {
+    auto table = catalog_->GetTable(name);
+    for (auto iter = table->table_->MakeIterator(); !iter.IsEnd(); ++iter) {
+      auto [meta, tuple, link] = GetTupleAndUndoLink(this, table->table_.get(), iter.GetRID());
+      auto ts = meta.ts_;
+      while (ts > watermark && link.has_value() && link->IsValid()) {
+        auto log = GetUndoLogOptional(*link);
+        BUSTUB_ENSURE(log.has_value(), "required undo log has been reclaimed");
+        needed.insert(link->prev_txn_);
+        ts = log->ts_;
+        link = log->prev_version_;
+      }
+    }
+  }
+  std::unique_lock<std::shared_mutex> lock(txn_map_mutex_);
+  for (auto iter = txn_map_.begin(); iter != txn_map_.end();) {
+    auto state = iter->second->GetTransactionState();
+    if ((state == TransactionState::COMMITTED || state == TransactionState::ABORTED) &&
+        needed.count(iter->first) == 0) {
+      iter = txn_map_.erase(iter);
+    } else {
+      ++iter;
+    }
+  }
+}
 
 }  // namespace bustub
