@@ -17,6 +17,30 @@ namespace bustub {
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
+TEST(TxnExecutorTest, UpdateAcrossBatches) {
+  auto bustub = std::make_unique<BusTubInstance>();
+  Execute(*bustub, "CREATE TABLE batch_table(a int, b int)");
+  std::string sql = "INSERT INTO batch_table VALUES ";
+  IntResult original;
+  IntResult updated;
+  const int rows = 2 * BUSTUB_BATCH_SIZE + 17;
+  for (int i = 0; i < rows; i++) {
+    sql += fmt::format("{}({}, {})", i == 0 ? "" : ",", i, i);
+    original.push_back({i, i});
+    updated.push_back({i + 1, i});
+  }
+  Execute(*bustub, sql);
+  auto *snapshot = BeginTxn(*bustub, "snapshot");
+  auto *writer = BeginTxn(*bustub, "writer");
+  WithTxn(writer, ExecuteTxn(*bustub, _var, _txn, "UPDATE batch_table SET a = a + 1"));
+  WithTxn(writer, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM batch_table", updated));
+  EXPECT_EQ(writer->GetUndoLogNum(), rows);
+  WithTxn(writer, CommitTxn(*bustub, _var, _txn));
+  WithTxn(snapshot, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM batch_table", original));
+  WithTxn(snapshot, CommitTxn(*bustub, _var, _txn));
+  TableHeapEntryNoMoreThan(*bustub, bustub->catalog_->GetTable("batch_table").get(), rows);
+}
+
 TEST(TxnExecutorTest, DISABLED_InsertTest) {  // NOLINT
   auto bustub = std::make_unique<BusTubInstance>();
   auto empty_table = IntResult{};

@@ -13,6 +13,7 @@
 #include <memory>
 #include "type/value_factory.h"
 
+#include "execution/execution_common.h"
 #include "execution/executors/update_executor.h"
 
 namespace bustub {
@@ -55,36 +56,20 @@ auto UpdateExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vector<b
   int32_t count = 0;
   std::vector<Tuple> tuples;
   std::vector<RID> rids;
-  const auto indexes = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
+  std::vector<std::pair<Tuple, RID>> inputs;
   while (child_executor_->Next(&tuples, &rids, BUSTUB_BATCH_SIZE)) {
     for (size_t i = 0; i < tuples.size(); i++) {
-      auto meta = table_info_->table_->GetTupleMeta(rids[i]);
-      if (meta.is_deleted_) {
-        continue;
-      }
-      std::vector<Value> values;
-      for (const auto &expr : plan_->target_expressions_) {
-        values.push_back(expr->Evaluate(&tuples[i], child_executor_->GetOutputSchema()));
-      }
-      Tuple updated(values, &table_info_->schema_);
-      meta.is_deleted_ = true;
-      table_info_->table_->UpdateTupleMeta(meta, rids[i]);
-      for (const auto &index : indexes) {
-        index->index_->DeleteEntry(
-            tuples[i].KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), rids[i],
-            exec_ctx_->GetTransaction());
-      }
-      auto new_rid = table_info_->table_->InsertTuple({0, false}, updated);
-      if (!new_rid.has_value()) {
-        continue;
-      }
-      for (const auto &index : indexes) {
-        index->index_->InsertEntry(
-            updated.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), *new_rid,
-            exec_ctx_->GetTransaction());
-      }
-      count++;
+      inputs.emplace_back(tuples[i], rids[i]);
     }
+  }
+  for (const auto &[tuple, rid] : inputs) {
+    std::vector<Value> values;
+    for (const auto &expr : plan_->target_expressions_) {
+      values.push_back(expr->Evaluate(&tuple, child_executor_->GetOutputSchema()));
+    }
+    Tuple updated(values, &table_info_->schema_);
+    WriteTuple(exec_ctx_->GetTransactionManager(), exec_ctx_->GetTransaction(), table_info_, rid, &updated);
+    count++;
   }
   tuple_batch->emplace_back(std::vector<Value>{ValueFactory::GetIntegerValue(count)}, &GetOutputSchema());
   return true;

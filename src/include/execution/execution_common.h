@@ -62,6 +62,10 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
 void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const TableInfo *table_info,
                TableHeap *table_heap);
 
+/** Write a tuple or deletion marker while holding its table page latch. */
+void WriteTuple(TransactionManager *txn_mgr, Transaction *txn, const TableInfo *table_info, RID rid,
+                const Tuple *target_tuple);
+
 // TODO(P4): Add new functions as needed... You are likely need to define some more functions.
 //
 // To give you a sense of what can be shared across executors / transaction manager, here are the

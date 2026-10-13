@@ -13,6 +13,7 @@
 #include "execution/execution_common.h"
 
 #include "catalog/catalog.h"
+#include "common/exception.h"
 #include "common/macros.h"
 #include "concurrency/transaction_manager.h"
 #include "fmt/core.h"
@@ -209,6 +210,34 @@ auto GenerateUpdatedUndoLog(const Schema *schema, const Tuple *base_tuple, const
   }
   Schema partial_schema(columns);
   return {log.is_deleted_, fields, Tuple(values, &partial_schema), log.ts_, log.prev_version_};
+}
+
+void WriteTuple(TransactionManager *txn_mgr, Transaction *txn, const TableInfo *table_info, RID rid,
+                const Tuple *target_tuple) {
+  auto *heap = table_info->table_.get();
+  auto guard = heap->AcquireTablePageWriteLock(rid);
+  auto *page = guard.AsMut<TablePage>();
+  auto [meta, base_tuple] = heap->GetTupleWithLockAcquired(rid, page);
+  const bool self_write = meta.ts_ == txn->GetTransactionTempTs();
+  if (!self_write && meta.ts_ > txn->GetReadTs()) {
+    txn->SetTainted();
+    throw ExecutionException("write-write conflict");
+  }
+  auto link = txn_mgr->GetUndoLink(rid);
+  const auto *before = meta.is_deleted_ ? nullptr : &base_tuple;
+  if (self_write) {
+    if (link.has_value() && link->IsValid() && link->prev_txn_ == txn->GetTransactionId()) {
+      auto log = txn->GetUndoLog(link->prev_log_idx_);
+      txn->ModifyUndoLog(link->prev_log_idx_, GenerateUpdatedUndoLog(&table_info->schema_, before, target_tuple, log));
+    }
+  } else {
+    link = txn->AppendUndoLog(
+        GenerateNewUndoLog(&table_info->schema_, before, target_tuple, meta.ts_, link.value_or(UndoLink{})));
+  }
+  heap->UpdateTupleInPlaceWithLockAcquired({txn->GetTransactionTempTs(), target_tuple == nullptr},
+                                           target_tuple == nullptr ? base_tuple : *target_tuple, rid, page);
+  txn_mgr->UpdateUndoLink(rid, link);
+  txn->AppendWriteSet(table_info->oid_, rid);
 }
 
 void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const TableInfo *table_info,

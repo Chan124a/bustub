@@ -13,6 +13,7 @@
 #include <memory>
 #include "type/value_factory.h"
 
+#include "execution/execution_common.h"
 #include "execution/executors/delete_executor.h"
 
 namespace bustub {
@@ -55,20 +56,9 @@ auto DeleteExecutor::Next(std::vector<bustub::Tuple> *tuple_batch, std::vector<b
   int32_t count = 0;
   std::vector<Tuple> tuples;
   std::vector<RID> rids;
-  const auto indexes = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
   while (child_executor_->Next(&tuples, &rids, BUSTUB_BATCH_SIZE)) {
-    for (size_t i = 0; i < tuples.size(); i++) {
-      auto meta = table_info_->table_->GetTupleMeta(rids[i]);
-      if (meta.is_deleted_) {
-        continue;
-      }
-      meta.is_deleted_ = true;
-      table_info_->table_->UpdateTupleMeta(meta, rids[i]);
-      for (const auto &index : indexes) {
-        index->index_->DeleteEntry(
-            tuples[i].KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), rids[i],
-            exec_ctx_->GetTransaction());
-      }
+    for (const auto &rid : rids) {
+      WriteTuple(exec_ctx_->GetTransactionManager(), exec_ctx_->GetTransaction(), table_info_, rid, nullptr);
       count++;
     }
   }
